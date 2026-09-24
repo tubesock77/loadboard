@@ -1,0 +1,472 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Load Board Admin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<header class="signbar">
+  <div class="wrap">
+    <a class="brand" href="/admin">
+      <span class="brand-mark" id="mark"></span>
+      <span><span class="brand-name"><span data-company>Load Board</span> · Admin</span><div class="brand-sub">Post loads, review bids, award carriers</div></span>
+    </a>
+    <nav id="topnav" hidden><a href="/" target="_blank" rel="noopener">View carrier board ↗</a><button type="button" id="logout">Sign out</button></nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <!-- login -->
+  <form class="panel login" id="login" hidden>
+    <h2 style="font-size:28px">Admin sign in</h2>
+    <div class="field"><label for="pw">Password</label><input id="pw" type="password" autocomplete="current-password" required></div>
+    <div id="loginmsg" aria-live="polite"></div>
+    <button class="btn primary" type="submit">Sign in</button>
+  </form>
+
+  <div id="app" hidden>
+    <div class="tabs" role="tablist">
+      <button type="button" class="on" data-tab="loads">Loads</button>
+      <button type="button" data-tab="carriers">Approved carriers</button>
+      <button type="button" data-tab="settings">Settings</button>
+    </div>
+
+    <!-- LOADS -->
+    <section data-pane="loads">
+      <div class="toolbar">
+        <div class="left">
+          <button class="btn primary" type="button" id="newLoad">+ New load</button>
+          <button class="btn" type="button" id="importBtn">Import loads</button>
+          <button class="btn" type="button" id="boardLink">Copy board link</button>
+          <a class="btn" href="/api/admin/bids.csv">Export all bids</a>
+        </div>
+        <div class="right">
+          <input id="search" type="search" placeholder="Search loads" style="width:200px" aria-label="Search loads">
+          <select id="statusFilter" style="width:auto" aria-label="Status filter">
+            <option value="">All statuses</option><option value="open">Open</option><option value="draft">Draft</option>
+            <option value="closed">Closed</option><option value="awarded">Awarded</option>
+          </select>
+        </div>
+      </div>
+      <div class="stat-row" id="stats"></div>
+      <div class="panel table-wrap"><table class="data" id="loadTable"></table></div>
+    </section>
+
+    <!-- CARRIERS -->
+    <section data-pane="carriers" hidden>
+      <div class="stack" style="max-width:820px">
+        <div class="panel card">
+          <h3>Highway-approved carrier list</h3>
+          <p class="help" style="margin-top:0">Carriers can only bid if their MC number is on this list. Paste a link to your Google Sheet or Excel file of Highway-approved carriers — the site re-reads it every <span id="refMin">30</span> minutes, and immediately when a carrier isn't found.</p>
+          <div class="stat-row" id="carrierStats"></div>
+          <div id="carrierErr"></div>
+          <form id="carrierForm" class="stack">
+            <div class="field"><label for="sheetUrl">Google Sheet or Excel link</label>
+              <input id="sheetUrl" type="url" placeholder="https://docs.google.com/spreadsheets/d/…"></div>
+            <div class="field"><label for="mcCol">MC column header <span class="hint">(optional — leave blank to auto-detect "MC", "MC Number", "Docket")</span></label>
+              <input id="mcCol" placeholder="MC Number"></div>
+            <div class="actions"><button class="btn primary" type="submit">Save link &amp; load list</button>
+              <button class="btn" type="button" id="refreshNow">Refresh now</button></div>
+          </form>
+        </div>
+        <div class="panel card">
+          <h3>Or upload a file</h3>
+          <p class="help" style="margin-top:0">Upload a .xlsx or .csv export instead of a link. An uploaded list stays until you upload again or save a link.</p>
+          <input type="file" id="carrierFile" accept=".xlsx,.csv">
+        </div>
+        <div class="panel card">
+          <h3>Check an MC number</h3>
+          <form id="testForm" class="actions" style="align-items:center">
+            <input id="testMc" placeholder="MC number" style="max-width:220px" inputmode="numeric">
+            <button class="btn" type="submit">Check</button><span id="testOut"></span>
+          </form>
+        </div>
+        <div class="panel card help">
+          <h3 style="color:var(--ink)">Sharing your sheet so the site can read it</h3>
+          <ul>
+            <li><b>Google Sheets:</b> Share → General access → "Anyone with the link" (Viewer). Paste the normal link; the site converts it. If your list is on a second tab, open that tab first so the link includes <span class="mono">#gid=</span>.</li>
+            <li><b>Excel on OneDrive/SharePoint:</b> Share → "Anyone with the link can view", then paste. If your company blocks anonymous links, use the upload option above.</li>
+            <li>The sheet needs one column of MC numbers. "MC123456", "MC-123456" and "123456" all match.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section data-pane="settings" hidden>
+      <form class="panel card stack" id="settingsForm" style="max-width:820px">
+        <h3>Board settings</h3>
+        <div class="grid g2">
+          <div class="field"><label for="s_company">Company name</label><input id="s_company"></div>
+          <div class="field"><label for="s_tagline">Tagline</label><input id="s_tagline"></div>
+        </div>
+        <div class="grid g3">
+          <div class="field"><label for="s_cname">Default contact name</label><input id="s_cname"></div>
+          <div class="field"><label for="s_cphone">Default phone</label><input id="s_cphone"></div>
+          <div class="field"><label for="s_cemail">Default email</label><input id="s_cemail"></div>
+        </div>
+        <div class="field"><label for="s_terms">Bid terms shown to carriers</label><textarea id="s_terms" rows="3"></textarea></div>
+        <div><button class="btn primary" type="submit">Save settings</button></div>
+      </form>
+    </section>
+  </div>
+</main>
+
+<!-- load editor -->
+<dialog id="loadDlg">
+  <form id="loadForm" method="dialog">
+    <div class="dlg-head"><h2 id="loadDlgTitle">New load</h2><button class="x" type="button" data-close aria-label="Close">×</button></div>
+    <div class="dlg-body">
+      <fieldset><legend>Lane</legend>
+        <div class="grid g4">
+          <div class="field" style="grid-column:span 2"><label for="f_origin_city">Origin city</label><input id="f_origin_city" name="origin_city" required></div>
+          <div class="field"><label for="f_origin_state">State</label><input id="f_origin_state" name="origin_state" maxlength="3" required></div>
+          <div class="field"><label for="f_origin_zip">ZIP</label><input id="f_origin_zip" name="origin_zip"></div>
+          <div class="field" style="grid-column:span 2"><label for="f_dest_city">Destination city</label><input id="f_dest_city" name="dest_city" required></div>
+          <div class="field"><label for="f_dest_state">State</label><input id="f_dest_state" name="dest_state" maxlength="3" required></div>
+          <div class="field"><label for="f_dest_zip">ZIP</label><input id="f_dest_zip" name="dest_zip"></div>
+        </div>
+      </fieldset>
+      <fieldset><legend>Schedule</legend>
+        <div class="grid g4">
+          <div class="field"><label for="f_pickup_date">Pickup date</label><input id="f_pickup_date" name="pickup_date" type="date"></div>
+          <div class="field"><label for="f_pickup_window">Pickup window</label><input id="f_pickup_window" name="pickup_window" placeholder="08:00–14:00"></div>
+          <div class="field"><label for="f_delivery_date">Delivery date</label><input id="f_delivery_date" name="delivery_date" type="date"></div>
+          <div class="field"><label for="f_delivery_window">Delivery window</label><input id="f_delivery_window" name="delivery_window" placeholder="Appt 07:00"></div>
+        </div>
+        <div class="grid g2">
+          <div class="field"><label for="f_bid_deadline">Bids due <span class="hint">(bidding closes automatically)</span></label><input id="f_bid_deadline" name="bid_deadline" type="datetime-local"></div>
+          <div class="field"><label for="f_status">Status</label>
+            <select id="f_status" name="status"><option value="open">Open — visible, taking bids</option><option value="draft">Draft — hidden</option><option value="closed">Closed — visible, no bids</option></select></div>
+        </div>
+      </fieldset>
+      <fieldset><legend>Equipment &amp; freight</legend>
+        <div class="grid g3">
+          <div class="field"><label for="f_equipment">Equipment</label>
+            <input id="f_equipment" name="equipment" list="eqList" placeholder="53' Dry Van">
+            <datalist id="eqList"><option value="53' Dry Van"><option value="53' Reefer"><option value="48' Flatbed"><option value="Step Deck"><option value="Conestoga"><option value="Power Only"><option value="26' Box Truck"></datalist></div>
+          <div class="field"><label for="f_temp">Temp <span class="hint">(reefer)</span></label><input id="f_temp" name="temp" placeholder="34°F continuous"></div>
+          <div class="field"><label for="f_weight">Weight (lb)</label><input id="f_weight" name="weight" inputmode="numeric"></div>
+          <div class="field"><label for="f_pallets">Pallets / pieces</label><input id="f_pallets" name="pallets"></div>
+          <div class="field"><label for="f_commodity">Commodity</label><input id="f_commodity" name="commodity"></div>
+          <div class="field"><label for="f_stops">Extra stops</label><input id="f_stops" name="stops" inputmode="numeric" placeholder="0"></div>
+        </div>
+        <div class="field"><label for="f_requirements">Requirements <span class="hint">(shown to carriers)</span></label><textarea id="f_requirements" name="requirements" rows="2" placeholder="Load locks, no double brokering, tracking required…"></textarea></div>
+        <div class="field"><label for="f_notes">Notes <span class="hint">(shown to carriers)</span></label><textarea id="f_notes" name="notes" rows="2"></textarea></div>
+      </fieldset>
+      <fieldset><legend>Internal &amp; contact</legend>
+        <div class="grid g4">
+          <div class="field"><label for="f_ref">Load / order #</label><input id="f_ref" name="ref"></div>
+          <div class="field"><label for="f_target_rate">Target rate $ <span class="hint">(private)</span></label><input id="f_target_rate" name="target_rate" inputmode="decimal"></div>
+          <div class="field" style="grid-column:span 2"><label for="f_miles">Miles <span class="hint">(blank = calculate from route)</span></label><input id="f_miles" name="miles" inputmode="numeric"></div>
+          <div class="field"><label for="f_contact_name">Contact</label><input id="f_contact_name" name="contact_name"></div>
+          <div class="field"><label for="f_contact_phone">Phone</label><input id="f_contact_phone" name="contact_phone"></div>
+          <div class="field" style="grid-column:span 2"><label for="f_contact_email">Email</label><input id="f_contact_email" name="contact_email"></div>
+        </div>
+      </fieldset>
+      <div id="loadMsg"></div>
+    </div>
+    <div class="dlg-foot">
+      <span id="editOnly" style="margin-right:auto;display:flex;gap:8px"><button class="btn" type="button" id="dupBtn">Duplicate</button><button class="btn danger" type="button" id="delBtn">Delete</button></span>
+      <button class="btn" type="button" data-close>Cancel</button>
+      <button class="btn" type="button" id="saveCopy">Save &amp; copy link</button>
+      <button class="btn primary" type="submit">Save load</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- bids -->
+<dialog id="bidsDlg">
+  <div class="dlg-head"><h2 id="bidsTitle">Bids</h2><button class="x" type="button" data-close aria-label="Close">×</button></div>
+  <div class="dlg-body" id="bidsBody"></div>
+</dialog>
+
+<!-- import -->
+<dialog id="importDlg">
+  <div class="dlg-head"><h2>Import loads</h2><button class="x" type="button" data-close aria-label="Close">×</button></div>
+  <div class="dlg-body">
+    <p class="help" style="margin:0">Upload a .csv or .xlsx with one load per row. Columns are matched by header name (e.g. <span class="mono">origin_city, origin_state, dest_city, dest_state, pickup_date, equipment, weight, bid_deadline, target_rate</span>). Rows without an origin and destination are skipped.</p>
+    <div><a class="btn sm" href="/api/admin/template.csv">Download template</a></div>
+    <input type="file" id="importFile" accept=".csv,.xlsx">
+    <div id="importMsg"></div>
+  </div>
+</dialog>
+
+<script src="/static/common.js"></script>
+<script>
+$('#mark').innerHTML = TRUCK_ICON;
+let loads = [], settings = {};
+const FIELDS = ['ref','status','origin_city','origin_state','origin_zip','dest_city','dest_state','dest_zip','pickup_date','pickup_window','delivery_date','delivery_window','equipment','temp','weight','pallets','commodity','stops','requirements','notes','target_rate','bid_deadline','contact_name','contact_phone','contact_email','miles'];
+const boardUrl = () => location.origin + '/';
+const loadUrl = l => location.origin + '/load/' + l.public_id;
+
+// ---------- auth ----------
+async function boot() {
+  try { await api('/api/admin/me'); showApp(); }
+  catch (_) { $('#login').hidden = false; $('#pw').focus(); }
+}
+$('#login').onsubmit = async e => {
+  e.preventDefault(); $('#loginmsg').innerHTML = '';
+  try { await api('/api/admin/login', { method: 'POST', body: { password: $('#pw').value } }); $('#login').hidden = true; showApp(); }
+  catch (err) { $('#loginmsg').innerHTML = `<div class="notice err">${esc(err.message)}</div>`; }
+};
+$('#logout').onclick = async () => { await api('/api/admin/logout', { method: 'POST' }); location.reload(); };
+async function showApp() {
+  $('#app').hidden = false; $('#topnav').hidden = false;
+  applyBranding();
+  settings = await api('/api/admin/settings');
+  refreshLoads();
+}
+
+// ---------- tabs ----------
+$$('.tabs button').forEach(b => b.onclick = () => {
+  $$('.tabs button').forEach(x => x.classList.toggle('on', x === b));
+  $$('[data-pane]').forEach(p => p.hidden = p.dataset.pane !== b.dataset.tab);
+  if (b.dataset.tab === 'carriers') loadCarriers();
+  if (b.dataset.tab === 'settings') fillSettings();
+});
+$$('dialog [data-close]').forEach(b => b.onclick = () => b.closest('dialog').close());
+
+// ---------- loads table ----------
+async function refreshLoads() {
+  loads = await api('/api/admin/loads');
+  renderLoads();
+}
+function renderLoads() {
+  const q = $('#search').value.trim().toLowerCase(), sf = $('#statusFilter').value;
+  const list = loads.filter(l => (!sf || l.status === sf) &&
+    (!q || [l.ref, l.public_id, l.origin_city, l.origin_state, l.dest_city, l.dest_state, l.equipment, l.commodity].join(' ').toLowerCase().includes(q)));
+  const open = loads.filter(l => l.status === 'open');
+  $('#stats').innerHTML = `
+    <div class="stat"><b>${open.filter(l => l.bidding_open).length}</b><span>Taking bids</span></div>
+    <div class="stat"><b>${open.filter(l => !l.bid_count).length}</b><span>Open, no bids</span></div>
+    <div class="stat"><b>${loads.reduce((s, l) => s + (l.status === 'open' ? l.bid_count : 0), 0)}</b><span>Bids on open loads</span></div>
+    <div class="stat"><b>${loads.filter(l => l.status === 'awarded').length}</b><span>Awarded</span></div>`;
+  if (!list.length) { $('#loadTable').innerHTML = `<tbody><tr><td class="empty">${loads.length ? 'No loads match.' : 'No loads yet. Click <b>+ New load</b> or <b>Import loads</b> to post your first one.'}</td></tr></tbody>`; return; }
+  $('#loadTable').innerHTML = `<thead><tr><th>Status</th><th>Lane</th><th>Pickup</th><th>Equipment</th><th class="num">Miles</th><th class="num">Bids</th><th class="num">Low bid</th><th class="num">Target</th><th>Bids due</th><th>Actions</th></tr></thead>
+  <tbody>${list.map(l => {
+    const tl = timeLeft(l.bid_deadline);
+    const st = l.status === 'open' && !l.bidding_open ? 'closed' : l.status;
+    const stLabel = l.status === 'open' && !l.bidding_open ? 'Expired' : l.status;
+    const geoNote = l.geo_status === 'failed' ? ' <span class="chip bad" title="Address not found — check city/state/ZIP">no map</span>' : l.geo_status === 'pending' ? ' <span class="chip">mapping…</span>' : '';
+    const overTarget = l.target_rate && l.low_bid && l.low_bid > l.target_rate;
+    return `<tr>
+      <td><span class="status ${st}">${esc(stLabel)}</span></td>
+      <td><div class="lane">${esc(place(l.origin_city, l.origin_state, l.origin_zip))} <span class="arrow">→</span> ${esc(place(l.dest_city, l.dest_state, l.dest_zip))}</div>
+        <div class="muted mono" style="font-size:12.5px">${l.ref ? '#' + esc(l.ref) + ' · ' : ''}${esc(l.public_id)}${geoNote}</div></td>
+      <td style="white-space:nowrap">${esc(fmtDate(l.pickup_date))}</td>
+      <td>${esc(l.equipment || '')}</td>
+      <td class="num">${l.miles ? Number(l.miles).toLocaleString() : '—'}</td>
+      <td class="num">${l.bid_count}</td>
+      <td class="num" style="${overTarget ? 'color:var(--bad)' : ''}">${l.bid_count ? esc(money(l.low_bid)) : '—'}<div class="muted" style="font-size:12px">${esc(perMile(l.low_bid, l.miles))}</div></td>
+      <td class="num">${l.target_rate ? esc(money(l.target_rate)) : '—'}</td>
+      <td style="white-space:nowrap" class="${tl && tl.urgent ? '' : 'muted'}">${l.bid_deadline ? esc(fmtDateTime(l.bid_deadline)) : '—'}</td>
+      <td><div class="actions" style="flex-wrap:nowrap">
+        <button class="btn sm primary" data-act="bids" data-id="${l.id}">Bids${l.bid_count ? ' (' + l.bid_count + ')' : ''}</button>
+        <button class="btn sm" data-act="edit" data-id="${l.id}">Edit</button>
+        <button class="btn sm" data-act="link" data-id="${l.id}">Link</button>
+      </div></td></tr>`;
+  }).join('')}</tbody>`;
+}
+$('#search').oninput = renderLoads; $('#statusFilter').onchange = renderLoads;
+$('#boardLink').onclick = () => copyText(boardUrl());
+
+$('#loadTable').onclick = async e => {
+  const b = e.target.closest('button[data-act]'); if (!b) return;
+  const l = loads.find(x => x.id === Number(b.dataset.id)); if (!l) return;
+  const act = b.dataset.act;
+  try {
+    if (act === 'edit') openLoad(l);
+    if (act === 'bids') openBids(l);
+    if (act === 'link') copyText(loadUrl(l));
+    if (act === 'dup') { const n = await api(`/api/admin/loads/${l.id}/duplicate`, { method: 'POST' }); await refreshLoads(); openLoad(n); toast('Duplicated as a draft'); }
+    if (act === 'close') { await api(`/api/admin/loads/${l.id}`, { method: 'PUT', body: { status: 'closed' } }); toast('Bidding closed'); refreshLoads(); }
+    if (act === 'open') {
+      const body = { status: 'open' };
+      if (l.bid_deadline && Date.parse(l.bid_deadline) < Date.now()) { toast('Bid deadline has passed — set a new one'); openLoad({ ...l, status: 'open' }); return; }
+      await api(`/api/admin/loads/${l.id}`, { method: 'PUT', body }); toast('Load posted'); refreshLoads();
+    }
+    if (act === 'del') {
+      if (!confirm(`Delete ${place(l.origin_city, l.origin_state)} → ${place(l.dest_city, l.dest_state)} and all ${l.bid_count} bid(s)? This can't be undone.`)) return;
+      await api(`/api/admin/loads/${l.id}`, { method: 'DELETE' }); toast('Load deleted'); refreshLoads();
+    }
+  } catch (err) { toast(err.message); }
+};
+
+// ---------- load editor ----------
+let editing = null;
+function toLocalInput(iso) {
+  if (!iso) return '';
+  const d = new Date(iso); if (isNaN(d)) return '';
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function openLoad(l) {
+  editing = l && l.id ? l : null;
+  $('#loadDlgTitle').textContent = editing ? `Edit load ${editing.ref ? '#' + editing.ref : editing.public_id}` : 'New load';
+  const f = $('#loadForm');
+  const v = l || { status: 'open', contact_name: settings.default_contact_name, contact_phone: settings.default_contact_phone, contact_email: settings.default_contact_email };
+  FIELDS.forEach(k => { const el = f.elements[k]; if (!el) return;
+    el.value = k === 'bid_deadline' ? toLocalInput(v[k]) : (k === 'miles' && editing && !editing.miles_manual ? '' : (v[k] ?? '')); });
+  if (editing && editing.miles && !editing.miles_manual) f.elements.miles.placeholder = `${Math.round(editing.miles)} (calculated)`; else f.elements.miles.placeholder = '';
+  if (v.status === 'awarded') { f.elements.status.value = 'closed'; }
+  $('#loadMsg').innerHTML = v.status === 'awarded' ? '<div class="notice warn">This load is awarded. Use "Reopen" in the bids window to take bids again.</div>' : '';
+  f.elements.status.disabled = v.status === 'awarded';
+  $('#editOnly').hidden = !editing;
+  $('#loadDlg').showModal();
+  f.elements.origin_city.focus();
+}
+$('#newLoad').onclick = () => openLoad(null);
+$('#dupBtn').onclick = async () => {
+  const n = await api(`/api/admin/loads/${editing.id}/duplicate`, { method: 'POST' });
+  $('#loadDlg').close(); await refreshLoads(); openLoad(n); toast('Copied as a new draft — adjust dates and set status to Open');
+};
+$('#delBtn').onclick = async () => {
+  const l = editing;
+  if (!confirm(`Delete ${place(l.origin_city, l.origin_state)} → ${place(l.dest_city, l.dest_state)} and its ${l.bid_count} bid(s)? This can't be undone.`)) return;
+  await api(`/api/admin/loads/${l.id}`, { method: 'DELETE' }); $('#loadDlg').close(); toast('Load deleted'); refreshLoads();
+};
+
+async function saveLoad(copyAfter) {
+  const f = $('#loadForm');
+  if (!f.reportValidity()) return;
+  const body = {};
+  FIELDS.forEach(k => { const el = f.elements[k]; if (!el || el.disabled) return; body[k] = el.value; });
+  body.bid_deadline = body.bid_deadline ? new Date(body.bid_deadline).toISOString() : '';
+  try {
+    const saved = editing ? await api(`/api/admin/loads/${editing.id}`, { method: 'PUT', body }) : await api('/api/admin/loads', { method: 'POST', body });
+    $('#loadDlg').close();
+    await refreshLoads();
+    if (copyAfter) copyText(loadUrl(saved)); else toast(editing ? 'Load saved' : 'Load posted');
+    setTimeout(refreshLoads, 4000); // pick up calculated miles/map
+  } catch (err) { $('#loadMsg').innerHTML = `<div class="notice err">${esc(err.message)}</div>`; }
+}
+$('#loadForm').onsubmit = e => { e.preventDefault(); saveLoad(false); };
+$('#saveCopy').onclick = () => saveLoad(true);
+
+// ---------- bids ----------
+async function openBids(l) {
+  $('#bidsTitle').textContent = `Bids · ${place(l.origin_city, l.origin_state)} → ${place(l.dest_city, l.dest_state)}`;
+  $('#bidsBody').innerHTML = '<div class="muted">Loading…</div>';
+  $('#bidsDlg').showModal();
+  await renderBids(l.id);
+}
+async function renderBids(id) {
+  const l = (await api(`/api/admin/loads/${id}`));
+  const bids = await api(`/api/admin/loads/${id}/bids`);
+  const head = `<div class="actions" style="justify-content:space-between;align-items:center">
+    <div class="muted">${l.ref ? '#' + esc(l.ref) + ' · ' : ''}Pickup ${esc(fmtDate(l.pickup_date) || 'TBD')} · ${esc(l.equipment || '')} · ${l.miles ? Number(l.miles).toLocaleString() + ' mi' : ''}
+      ${l.target_rate ? ` · Target <b class="mono">${esc(money(l.target_rate))}</b>` : ''}</div>
+    <div class="actions">${l.status === 'awarded' || l.status === 'closed' ? `<button class="btn sm" id="reopen">Reopen for bids</button>` : ''}
+      <button class="btn sm" id="copyL">Copy carrier link</button></div></div>`;
+  if (!bids.length) { $('#bidsBody').innerHTML = head + '<div class="panel empty">No bids yet. Send carriers the link to this load.</div>'; wire(l); return; }
+  $('#bidsBody').innerHTML = head + `<div class="panel table-wrap"><table class="data">
+    <thead><tr><th>#</th><th>Carrier</th><th>Contact</th><th class="num">Bid</th><th class="num">$/mi</th><th class="num">vs target</th><th>Submitted</th><th></th></tr></thead>
+    <tbody>${bids.map((b, i) => {
+      const diff = l.target_rate ? b.amount - l.target_rate : null;
+      return `<tr>
+      <td class="num">${i + 1}</td>
+      <td><b>${esc(b.company)}</b><div class="mono muted" style="font-size:12.5px">MC ${esc(b.mc)}</div>${b.notes ? `<div style="font-size:13px;margin-top:4px">“${esc(b.notes)}”</div>` : ''}</td>
+      <td>${esc(b.contact_name)}<div style="font-size:13px">${esc(b.phone)}</div><div style="font-size:13px">${esc(b.email)}</div></td>
+      <td class="num"><b>${esc(money(b.amount))}</b></td>
+      <td class="num">${l.miles ? '$' + (b.amount / l.miles).toFixed(2) : '—'}</td>
+      <td class="num" style="color:${diff == null ? 'inherit' : diff > 0 ? 'var(--bad)' : 'var(--good)'}">${diff == null ? '—' : (diff > 0 ? '+' : '−') + money(Math.abs(diff))}</td>
+      <td style="white-space:nowrap">${esc(fmtDateTime(b.updated_at))}</td>
+      <td><div class="actions">${b.status === 'awarded' ? '<span class="status awarded">Awarded</span>'
+        : l.status === 'awarded' ? '' : `<button class="btn sm primary" data-award="${b.id}">Award</button>`}
+        <button class="btn sm danger" data-delbid="${b.id}" title="Remove bid">×</button></div></td></tr>`;
+    }).join('')}</tbody></table></div>`;
+  wire(l);
+}
+function wire(l) {
+  const c = $('#copyL'); if (c) c.onclick = () => copyText(loadUrl(l));
+  const r = $('#reopen'); if (r) r.onclick = async () => {
+    if (l.bid_deadline && Date.parse(l.bid_deadline) < Date.now()) { $('#bidsDlg').close(); toast('Set a new bid deadline first'); openLoad({ ...l, status: 'open' }); return; }
+    await api(`/api/admin/loads/${l.id}/reopen`, { method: 'POST' }); toast('Reopened for bids'); renderBids(l.id); refreshLoads();
+  };
+  $$('[data-award]').forEach(b => b.onclick = async () => {
+    if (!confirm('Award this load to this carrier? Bidding will close and the load will show as covered.')) return;
+    await api(`/api/admin/bids/${b.dataset.award}/award`, { method: 'POST' }); toast('Load awarded'); renderBids(l.id); refreshLoads();
+  });
+  $$('[data-delbid]').forEach(b => b.onclick = async () => {
+    if (!confirm('Remove this bid?')) return;
+    await api(`/api/admin/bids/${b.dataset.delbid}`, { method: 'DELETE' }); renderBids(l.id); refreshLoads();
+  });
+}
+
+// ---------- import ----------
+function fileToBase64(file) {
+  return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1]); r.onerror = rej; r.readAsDataURL(file); });
+}
+$('#importBtn').onclick = () => { $('#importMsg').innerHTML = ''; $('#importFile').value = ''; $('#importDlg').showModal(); };
+$('#importFile').onchange = async e => {
+  const file = e.target.files[0]; if (!file) return;
+  $('#importMsg').innerHTML = '<div class="muted">Importing…</div>';
+  try {
+    const r = await api('/api/admin/import', { method: 'POST', body: { filename: file.name, data: await fileToBase64(file) } });
+    $('#importMsg').innerHTML = `<div class="notice ok">Imported ${r.created} load${r.created === 1 ? '' : 's'}.${r.skipped.length ? ` Skipped row${r.skipped.length > 1 ? 's' : ''} ${r.skipped.join(', ')} (missing origin or destination).` : ''} Maps and miles fill in over the next minute.</div>`;
+    refreshLoads(); setTimeout(refreshLoads, 8000);
+  } catch (err) { $('#importMsg').innerHTML = `<div class="notice err">${esc(err.message)}</div>`; }
+};
+
+// ---------- carriers ----------
+function carrierStats(s) {
+  $('#refMin').textContent = s.refreshMinutes;
+  $('#carrierStats').innerHTML = `<div class="stat"><b>${s.count.toLocaleString()}</b><span>Approved MCs loaded</span></div>
+    <div class="stat"><b style="font-size:17px;padding-top:6px">${s.lastRefresh ? esc(fmtDateTime(s.lastRefresh)) : 'Never'}</b><span>Last updated${s.sourceLabel ? ' · from ' + esc(s.sourceLabel) : ''}</span></div>`;
+  $('#carrierErr').innerHTML = s.lastError ? `<div class="notice err" style="margin-bottom:12px"><b>Last refresh failed:</b> ${esc(s.lastError)}</div>`
+    : s.count === 0 ? `<div class="notice warn" style="margin-bottom:12px">No carriers loaded yet — nobody can bid until you add a list.</div>` : '';
+}
+async function loadCarriers() {
+  const s = await api('/api/admin/carriers');
+  $('#sheetUrl').value = s.url; $('#mcCol').value = s.mcColumn;
+  carrierStats(s);
+}
+$('#carrierForm').onsubmit = async e => {
+  e.preventDefault();
+  $('#carrierErr').innerHTML = '<div class="muted" style="margin-bottom:12px">Loading sheet…</div>';
+  const s = await api('/api/admin/carriers', { method: 'PUT', body: { url: $('#sheetUrl').value, mcColumn: $('#mcCol').value } });
+  carrierStats(s);
+  if (s.error) $('#carrierErr').innerHTML = `<div class="notice err" style="margin-bottom:12px">${esc(s.error)}</div>`;
+  else if ($('#sheetUrl').value) toast(`Loaded ${s.count} approved carriers`);
+};
+$('#refreshNow').onclick = async () => {
+  try { const s = await api('/api/admin/carriers/refresh', { method: 'POST' }); carrierStats(s); toast(`Loaded ${s.count} approved carriers`); }
+  catch (err) { $('#carrierErr').innerHTML = `<div class="notice err" style="margin-bottom:12px">${esc(err.message)}</div>`; }
+};
+$('#carrierFile').onchange = async e => {
+  const file = e.target.files[0]; if (!file) return;
+  try { const s = await api('/api/admin/carriers/upload', { method: 'POST', body: { filename: file.name, data: await fileToBase64(file) } }); carrierStats(s); toast(`Loaded ${s.count} approved carriers`); }
+  catch (err) { $('#carrierErr').innerHTML = `<div class="notice err" style="margin-bottom:12px">${esc(err.message)}</div>`; }
+  e.target.value = '';
+};
+$('#testForm').onsubmit = async e => {
+  e.preventDefault();
+  const r = await api('/api/admin/carriers/test', { method: 'POST', body: { mc: $('#testMc').value } });
+  $('#testOut').innerHTML = r.ok ? `<span class="chip eq">✓ MC ${esc(r.mc)} approved${r.name ? ' · ' + esc(r.name) : ''}</span>`
+    : `<span class="chip bad">${r.reason === 'invalid' ? 'Not a valid MC number' : 'MC ' + esc(r.mc) + ' not on list'}</span>`;
+};
+
+// ---------- settings ----------
+function fillSettings() {
+  $('#s_company').value = settings.company_name || ''; $('#s_tagline').value = settings.board_tagline || '';
+  $('#s_cname').value = settings.default_contact_name || ''; $('#s_cphone').value = settings.default_contact_phone || '';
+  $('#s_cemail').value = settings.default_contact_email || ''; $('#s_terms').value = settings.bid_terms || '';
+}
+$('#settingsForm').onsubmit = async e => {
+  e.preventDefault();
+  settings = await api('/api/admin/settings', { method: 'PUT', body: {
+    company_name: $('#s_company').value, board_tagline: $('#s_tagline').value, default_contact_name: $('#s_cname').value,
+    default_contact_phone: $('#s_cphone').value, default_contact_email: $('#s_cemail').value, bid_terms: $('#s_terms').value } });
+  applyBranding(); toast('Settings saved');
+};
+
+boot();
+</script>
+</body>
+</html>

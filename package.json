@@ -1,0 +1,10 @@
+{
+  "name": "freight-load-board",
+  "version": "1.0.0",
+  "description": "Truckload freight bidding site: carriers view loads on a map and bid; MC numbers checked against a Highway-approved list; admin area to post loads and award.",
+  "main": "server.js",
+  "private": true,
+  "engines": { "node": ">=22.13" },
+  "scripts": { "start": "node --no-warnings server.js" },
+  "license": "UNLICENSED"
+}

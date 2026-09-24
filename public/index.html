@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>{company} Load Board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<header class="signbar">
+  <div class="wrap">
+    <a class="brand" href="/">
+      <span class="brand-mark" id="mark"></span>
+      <span><span class="brand-name" data-company>Load Board</span><div class="brand-sub" data-tagline></div></span>
+    </a>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="board-head">
+    <div>
+      <h1>Available loads</h1>
+      <div class="muted" id="count">Loading…</div>
+    </div>
+    <div class="filters">
+      <input id="q" type="search" placeholder="Search city, state, ref #" aria-label="Search loads">
+      <select id="eq" aria-label="Equipment"><option value="">All equipment</option></select>
+      <select id="ostate" aria-label="Origin state"><option value="">Any origin</option></select>
+    </div>
+  </div>
+  <div class="loads" id="loads"></div>
+</main>
+
+<footer class="footer"><div class="wrap">Carriers must be approved through Highway before bidding. Rates are all-in USD.</div></footer>
+
+<script src="/static/common.js"></script>
+<script>
+$('#mark').innerHTML = TRUCK_ICON;
+let all = [];
+
+function render() {
+  const q = $('#q').value.trim().toLowerCase();
+  const eq = $('#eq').value, os = $('#ostate').value;
+  const list = all.filter(l => {
+    if (eq && l.equipment !== eq) return false;
+    if (os && l.origin_state !== os) return false;
+    if (!q) return true;
+    return [l.ref, l.public_id, l.origin_city, l.origin_state, l.dest_city, l.dest_state, l.commodity, l.equipment].join(' ').toLowerCase().includes(q);
+  });
+  $('#count').textContent = `${list.length} load${list.length === 1 ? '' : 's'} open for bids` + (list.length !== all.length ? ` (of ${all.length})` : '');
+  if (!list.length) {
+    $('#loads').innerHTML = `<div class="panel empty">${all.length ? 'No loads match those filters.' : 'No loads are posted right now. Check back soon.'}</div>`;
+    return;
+  }
+  $('#loads').innerHTML = list.map(l => {
+    const tl = timeLeft(l.bid_deadline);
+    return `<a class="panel load-row" href="/load/${esc(l.public_id)}">
+      <div>
+        <div class="lane">${esc(place(l.origin_city, l.origin_state, l.origin_zip))} <span class="arrow">→</span> ${esc(place(l.dest_city, l.dest_state, l.dest_zip))}
+          ${l.miles ? `<small class="num">${Number(l.miles).toLocaleString()} mi</small>` : ''}</div>
+        <div class="meta">
+          ${l.equipment ? `<span class="chip eq">${esc(l.equipment)}${l.temp ? ' · ' + esc(l.temp) : ''}</span>` : ''}
+          ${l.pickup_date ? `<span class="chip">Pick up ${esc(fmtDate(l.pickup_date))}</span>` : ''}
+          ${l.delivery_date ? `<span class="chip">Deliver ${esc(fmtDate(l.delivery_date))}</span>` : ''}
+          ${l.weight ? `<span class="chip">${esc(weight(l.weight))}</span>` : ''}
+          ${l.stops ? `<span class="chip">${esc(l.stops)} extra stop${l.stops > 1 ? 's' : ''}</span>` : ''}
+          ${tl ? `<span class="chip ${tl.urgent ? 'warn' : ''}">${esc(tl.text)}</span>` : ''}
+          ${l.ref ? `<span class="chip mono">#${esc(l.ref)}</span>` : ''}
+        </div>
+      </div>
+      <div class="side">
+        <div><div class="lowbid-label">${l.bid_count ? 'Current Bid' : 'No bids yet'}</div>
+        <div class="lowbid">${l.bid_count ? esc(money(l.low_bid)) : '—'}</div></div>
+        <span class="btn primary sm">View &amp; bid</span>
+      </div>
+    </a>`;
+  }).join('');
+}
+
+function fillSelect(sel, values) {
+  const cur = sel.value;
+  sel.length = 1;
+  [...new Set(values.filter(Boolean))].sort().forEach(v => sel.add(new Option(v, v)));
+  sel.value = cur;
+}
+
+async function load() {
+  try {
+    all = await api('/api/loads');
+    fillSelect($('#eq'), all.map(l => l.equipment));
+    fillSelect($('#ostate'), all.map(l => l.origin_state));
+    render();
+  } catch (e) {
+    $('#loads').innerHTML = `<div class="notice err">${esc(e.message)}</div>`;
+  }
+}
+['#q', '#eq', '#ostate'].forEach(s => $(s).addEventListener('input', render));
+applyBranding();
+load();
+setInterval(load, 60000);
+</script>
+</body>
+</html>

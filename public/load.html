@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Load details · {company}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<header class="signbar">
+  <div class="wrap">
+    <a class="brand" href="/">
+      <span class="brand-mark" id="mark"></span>
+      <span><span class="brand-name" data-company>Load Board</span><div class="brand-sub" data-tagline></div></span>
+    </a>
+    <nav><a href="/">All loads</a></nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="crumbs"><a href="/">← All available loads</a></div>
+  <div id="root"><div class="panel empty">Loading load…</div></div>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="/static/common.js"></script>
+<script>
+$('#mark').innerHTML = TRUCK_ICON;
+const pid = location.pathname.split('/').filter(Boolean)[1];
+let L0 = null, cfg = {}, qualified = null;
+
+function specs(l) {
+  const items = [
+    ['Equipment', l.equipment], ['Temp', l.temp], ['Weight', weight(l.weight)], ['Pallets / pieces', l.pallets],
+    ['Commodity', l.commodity], ['Miles', l.miles ? Number(l.miles).toLocaleString() : ''], ['Extra stops', l.stops || ''],
+    ['Load #', l.ref], ['Posting ID', l.public_id],
+  ].filter(([, v]) => v !== '' && v != null);
+  return items.map(([k, v]) => `<div class="spec"><dt>${esc(k)}</dt><dd${/Load #|Posting|Miles/.test(k) ? ' class="mono"' : ''}>${esc(v)}</dd></div>`).join('');
+}
+
+function renderPage() {
+  const l = L0;
+  const tl = timeLeft(l.bid_deadline);
+  const statusChip = l.status === 'awarded' ? '<span class="chip bad">Covered</span>'
+    : !l.bidding_open ? '<span class="chip warn">Bidding closed</span>'
+    : tl ? `<span class="chip ${tl.urgent ? 'warn' : 'eq'}">${esc(tl.text)}</span>` : '<span class="chip eq">Open for bids</span>';
+  document.title = `${place(l.origin_city, l.origin_state)} → ${place(l.dest_city, l.dest_state)} · ${cfg.company || 'Load'}`;
+  $('#root').innerHTML = `
+  <div class="detail-head">
+    <div>
+      <div class="lane">${esc(place(l.origin_city, l.origin_state, l.origin_zip))} <span class="arrow">→</span> ${esc(place(l.dest_city, l.dest_state, l.dest_zip))}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">${statusChip}
+        ${l.equipment ? `<span class="chip eq">${esc(l.equipment)}</span>` : ''}
+        ${l.miles ? `<span class="chip num">${Number(l.miles).toLocaleString()} mi</span>` : ''}</div>
+    </div>
+    <button class="btn sm" id="share" type="button">Copy link to this load</button>
+  </div>
+  <div class="detail">
+    <section>
+      <div id="map" role="img" aria-label="Map of the route from origin to destination"></div>
+      <div class="panel stopline">
+        <div class="stop"><div class="stop-tag">Pick up</div>
+          <div class="stop-city">${esc(place(l.origin_city, l.origin_state))}</div>
+          <div class="muted">${esc(l.origin_zip || '')}</div>
+          <div class="stop-when"><b>${esc(fmtDate(l.pickup_date) || 'Date TBD')}</b>${l.pickup_window ? ' · ' + esc(l.pickup_window) : ''}</div></div>
+        <div class="stop"><div class="stop-tag">Deliver</div>
+          <div class="stop-city">${esc(place(l.dest_city, l.dest_state))}</div>
+          <div class="muted">${esc(l.dest_zip || '')}</div>
+          <div class="stop-when"><b>${esc(fmtDate(l.delivery_date) || 'Date TBD')}</b>${l.delivery_window ? ' · ' + esc(l.delivery_window) : ''}</div></div>
+      </div>
+      <dl class="panel specs" style="margin-bottom:0">${specs(l)}</dl>
+      ${l.requirements ? `<div class="panel textblock"><h3>Requirements</h3><p>${esc(l.requirements)}</p></div>` : ''}
+      ${l.notes ? `<div class="panel textblock"><h3>Notes</h3><p>${esc(l.notes)}</p></div>` : ''}
+      ${(l.contact_name || l.contact_phone || l.contact_email || cfg.contact_phone || cfg.contact_email) ? `<div class="panel textblock"><h3>Questions about this load</h3>
+        <p>${esc(l.contact_name || '')}${l.contact_name ? '\n' : ''}${esc(l.contact_phone || cfg.contact_phone || '')}${(l.contact_phone || cfg.contact_phone) ? '\n' : ''}${esc(l.contact_email || cfg.contact_email || '')}</p></div>` : ''}
+    </section>
+    <aside class="panel bidbox" id="bidbox"></aside>
+  </div>`;
+  $('#share').onclick = () => copyText(location.href);
+  drawMap(l);
+  renderBidbox();
+}
+
+function drawMap(l) {
+  const el = $('#map');
+  if (!window.L || l.origin_lat == null || l.dest_lat == null) {
+    el.outerHTML = `<div class="map-missing">Map unavailable for this load — see pickup and delivery below.</div>`;
+    return;
+  }
+  const map = L.map(el, { scrollWheelZoom: false });
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, attribution: '&copy; OpenStreetMap contributors' }).addTo(map);
+  const sign = getComputedStyle(document.documentElement).getPropertyValue('--sign').trim() || '#1D4F9E';
+  const pin = (label) => L.divIcon({ className: '', iconSize: [30, 30], iconAnchor: [15, 15],
+    html: `<div style="width:30px;height:30px;border-radius:50%;background:${sign};color:#fff;border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);display:grid;place-items:center;font:700 14px Barlow,sans-serif">${label}</div>` });
+  const a = [l.origin_lat, l.origin_lng], b = [l.dest_lat, l.dest_lng];
+  L.marker(a, { icon: pin('A') }).addTo(map).bindTooltip('Pick up: ' + place(l.origin_city, l.origin_state));
+  L.marker(b, { icon: pin('B') }).addTo(map).bindTooltip('Deliver: ' + place(l.dest_city, l.dest_state));
+  let line;
+  if (l.route && l.route.coordinates) line = L.geoJSON(l.route, { style: { color: sign, weight: 5, opacity: .85 } }).addTo(map);
+  else line = L.polyline([a, b], { color: sign, weight: 3, dashArray: '8 8' }).addTo(map);
+  map.fitBounds(line.getBounds().pad(0.15));
+}
+
+function renderBidbox() {
+  const l = L0, box = $('#bidbox');
+  const mine = store.get('bid:' + l.public_id);
+  const top = `<div class="bidbox-top">
+      <div><div class="lowbid-label">Current Bid</div><div class="big">${l.bid_count ? esc(money(l.low_bid)) : '—'}</div>
+        <div class="rpm">${l.bid_count ? esc(perMile(l.low_bid, l.miles)) : 'Be the first to bid'}</div></div>
+      <div><div class="lowbid-label">Bids</div><div class="big">${l.bid_count}</div>
+        ${mine ? `<div class="rpm">Yours: ${esc(money(mine.amount))}</div>` : ''}</div>
+    </div>`;
+
+  if (!l.bidding_open) {
+    box.innerHTML = top + `<div class="bidbox-body"><h2>${l.status === 'awarded' ? 'This load is covered' : 'Bidding is closed'}</h2>
+      <p class="muted" style="margin:0">Thanks for your interest. <a href="/">See other available loads</a>.</p></div>`;
+    return;
+  }
+
+  const steps = `<div class="steps"><span class="${qualified ? '' : 'on'}"><b>1</b>Verify MC</span><span class="${qualified ? 'on' : ''}"><b>2</b>Place bid</span></div>`;
+
+  if (!qualified) {
+    const saved = store.get('carrier') || {};
+    box.innerHTML = top + `<div class="bidbox-body">
+      ${steps}
+      <h2>Bid on this load</h2>
+      <p class="muted" style="margin:0">Only carriers approved through Highway can bid. Enter your MC number to check.</p>
+      <form id="qform" class="stack" novalidate>
+        <div class="field"><label for="mc">MC number</label>
+          <input id="mc" inputmode="numeric" autocomplete="off" placeholder="e.g. 123456" value="${esc(saved.mc || '')}" required></div>
+        <div id="qmsg" aria-live="polite"></div>
+        <button class="btn primary" type="submit" id="qbtn">Check eligibility</button>
+      </form></div>`;
+    $('#qform').onsubmit = async e => {
+      e.preventDefault();
+      const btn = $('#qbtn'); btn.disabled = true; btn.textContent = 'Checking…';
+      $('#qmsg').innerHTML = '';
+      try {
+        const r = await api('/api/qualify', { method: 'POST', body: { mc: $('#mc').value } });
+        if (r.qualified) {
+          qualified = r;
+          store.set('carrier', { ...(store.get('carrier') || {}), mc: r.mc, company: (store.get('carrier') || {}).company || r.name });
+          renderBidbox();
+        } else {
+          const contact = [cfg.contact_phone, cfg.contact_email].filter(Boolean).join(' · ');
+          $('#qmsg').innerHTML = `<div class="notice err"><b>MC ${esc(r.mc)} isn't on our approved carrier list.</b><br>
+            You'll need to complete Highway onboarding with ${esc(cfg.company || 'us')} before you can bid.${contact ? ' Contact ' + esc(contact) + ' to get set up.' : ''}</div>`;
+        }
+      } catch (err) {
+        $('#qmsg').innerHTML = `<div class="notice err">${esc(err.message)}</div>`;
+      } finally { btn.disabled = false; btn.textContent = 'Check eligibility'; }
+    };
+    return;
+  }
+
+  const c = store.get('carrier') || {};
+  box.innerHTML = top + `<div class="bidbox-body">
+    ${steps}
+    <div class="notice ok qualified-as"><span>✓ Approved: <b>MC ${esc(qualified.mc)}</b>${qualified.name ? ' · ' + esc(qualified.name) : ''}</span>
+      <button class="btn sm" type="button" id="chg">Change</button></div>
+    ${mine ? `<div class="notice warn">You bid ${esc(money(mine.amount))} on ${esc(fmtDateTime(mine.at))}. Submitting again replaces your bid.</div>` : ''}
+    <form id="bform" class="stack" novalidate>
+      <div class="field"><label for="amount">All-in rate <span class="hint">(linehaul + fuel, USD)</span></label>
+        <div class="money"><input id="amount" inputmode="decimal" autocomplete="off" placeholder="0" value="${mine ? esc(mine.amount) : ''}" required></div>
+        <div class="rpm" id="rpm" style="margin-top:4px"></div></div>
+      <div class="field"><label for="company">Company</label><input id="company" autocomplete="organization" value="${esc(c.company || qualified.name || '')}" required></div>
+      <div class="grid g2">
+        <div class="field"><label for="cname">Your name</label><input id="cname" autocomplete="name" value="${esc(c.contact_name || '')}" required></div>
+        <div class="field"><label for="phone">Phone</label><input id="phone" type="tel" autocomplete="tel" value="${esc(c.phone || '')}"></div>
+      </div>
+      <div class="field"><label for="email">Email</label><input id="email" type="email" autocomplete="email" value="${esc(c.email || '')}"></div>
+      <div class="field"><label for="bnotes">Notes <span class="hint">(optional — truck availability, questions)</span></label><textarea id="bnotes" rows="2"></textarea></div>
+      <div id="bmsg" aria-live="polite"></div>
+      <button class="btn primary" type="submit" id="bbtn">${mine ? 'Update my bid' : 'Submit bid'}</button>
+      <div class="terms">${esc(cfg.bid_terms || '')}</div>
+    </form></div>`;
+  const upd = () => { const v = Number($('#amount').value.replace(/[^0-9.]/g, '')); $('#rpm').textContent = v && l.miles ? perMile(v, l.miles) + ` · ${Number(l.miles).toLocaleString()} mi` : ''; };
+  $('#amount').addEventListener('input', upd); upd();
+  $('#chg').onclick = () => { qualified = null; renderBidbox(); };
+  $('#bform').onsubmit = async e => {
+    e.preventDefault();
+    const body = { mc: qualified.mc, amount: $('#amount').value, company: $('#company').value, contact_name: $('#cname').value,
+      phone: $('#phone').value, email: $('#email').value, notes: $('#bnotes').value };
+    const btn = $('#bbtn'); btn.disabled = true; btn.textContent = 'Submitting…';
+    try {
+      const r = await api(`/api/loads/${encodeURIComponent(pid)}/bids`, { method: 'POST', body });
+      store.set('carrier', { mc: qualified.mc, company: body.company, contact_name: body.contact_name, phone: body.phone, email: body.email });
+      store.set('bid:' + pid, { amount: r.amount, at: new Date().toISOString() });
+      L0.low_bid = r.low_bid; L0.bid_count = r.bid_count;
+      renderBidbox();
+      const note = document.createElement('div');
+      note.className = 'notice ok';
+      note.innerHTML = `<b>Bid received: ${esc(money(r.amount))}.</b> ${r.you_are_low ? "Yours is currently the lowest bid." : `Current bid is ${esc(money(r.low_bid))}.`} We'll contact you if you're awarded.`;
+      $('.bidbox-body', box).prepend(note);
+    } catch (err) {
+      $('#bmsg').innerHTML = `<div class="notice err">${esc(err.message)}</div>`;
+      btn.disabled = false; btn.textContent = mine ? 'Update my bid' : 'Submit bid';
+    }
+  };
+}
+
+(async () => {
+  cfg = await applyBranding();
+  try {
+    L0 = await api('/api/loads/' + encodeURIComponent(pid));
+    renderPage();
+  } catch (e) {
+    $('#root').innerHTML = `<div class="panel empty"><h2 style="margin-bottom:8px">Load not found</h2>${esc(e.message)} <a href="/">See available loads</a>.</div>`;
+  }
+})();
+// keep low bid fresh while the page is open
+setInterval(async () => {
+  if (!L0 || document.hidden) return;
+  try { const n = await api('/api/loads/' + encodeURIComponent(pid)); if (n.low_bid !== L0.low_bid || n.bid_count !== L0.bid_count || n.bidding_open !== L0.bidding_open) {
+    const typing = document.activeElement && document.activeElement.closest && document.activeElement.closest('#bidbox');
+    Object.assign(L0, { low_bid: n.low_bid, bid_count: n.bid_count, bidding_open: n.bidding_open, status: n.status });
+    if (!typing) renderBidbox();
+  } } catch (_) { /* ignore */ }
+}, 30000);
+</script>
+</body>
+</html>
