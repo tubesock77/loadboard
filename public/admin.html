@@ -62,7 +62,7 @@
       <div class="stack" style="max-width:820px">
         <div class="panel card">
           <h3>Highway-approved carrier list</h3>
-          <p class="help" style="margin-top:0">Carriers can only bid if their MC number is on this list. Paste a link to your Google Sheet or Excel file of Highway-approved carriers — the site re-reads it every <span id="refMin">30</span> minutes, and immediately when a carrier isn't found.</p>
+          <p class="help" style="margin-top:0">Any carrier can bid. Each bid is checked against this list so you can see who passes Highway in the Bids window. Paste a link to your Google Sheet or Excel file of Highway-approved carriers — the site re-reads it every <span id="refMin">30</span> minutes, and immediately when a carrier isn't found.</p>
           <div class="stat-row" id="carrierStats"></div>
           <div id="carrierErr"></div>
           <form id="carrierForm" class="stack">
@@ -262,7 +262,7 @@ function renderLoads() {
       <td style="white-space:nowrap">${esc(fmtDate(l.pickup_date))}</td>
       <td>${esc(l.equipment || '')}</td>
       <td class="num">${l.miles ? Number(l.miles).toLocaleString() : '—'}</td>
-      <td class="num">${l.bid_count}</td>
+      <td class="num">${l.bid_count}${l.bid_count ? `<div style="font-size:12px;color:${l.pass_count ? 'var(--good)' : 'var(--muted)'}">${l.pass_count} pass</div>` : ''}</td>
       <td class="num" style="${overTarget ? 'color:var(--bad)' : ''}">${l.bid_count ? esc(money(l.low_bid)) : '—'}<div class="muted" style="font-size:12px">${esc(perMile(l.low_bid, l.miles))}</div></td>
       <td class="num">${l.target_rate ? esc(money(l.target_rate)) : '—'}</td>
       <td style="white-space:nowrap" class="${tl && tl.urgent ? '' : 'muted'}">${l.bid_deadline ? esc(fmtDateTime(l.bid_deadline)) : '—'}</td>
@@ -366,19 +366,21 @@ async function renderBids(id) {
       <button class="btn sm" id="copyL">Copy carrier link</button></div></div>`;
   if (!bids.length) { $('#bidsBody').innerHTML = head + '<div class="panel empty">No bids yet. Send carriers the link to this load.</div>'; wire(l); return; }
   $('#bidsBody').innerHTML = head + `<div class="panel table-wrap"><table class="data">
-    <thead><tr><th>#</th><th>Carrier</th><th>Contact</th><th class="num">Bid</th><th class="num">$/mi</th><th class="num">vs target</th><th>Submitted</th><th></th></tr></thead>
+    <thead><tr><th>#</th><th>Carrier</th><th>Highway</th><th>Contact</th><th class="num">Bid</th><th class="num">$/mi</th><th class="num">vs target</th><th>Submitted</th><th></th></tr></thead>
     <tbody>${bids.map((b, i) => {
       const diff = l.target_rate ? b.amount - l.target_rate : null;
       return `<tr>
       <td class="num">${i + 1}</td>
       <td><b>${esc(b.company)}</b><div class="mono muted" style="font-size:12.5px">MC ${esc(b.mc)}</div>${b.notes ? `<div style="font-size:13px;margin-top:4px">“${esc(b.notes)}”</div>` : ''}</td>
+      <td>${b.highway_pass ? `<span class="chip eq" style="background:color-mix(in srgb, var(--good) 14%, transparent);color:var(--good)">✓ Pass</span>${b.highway_name && b.highway_name.toLowerCase() !== String(b.company).toLowerCase() ? `<div class="muted" style="font-size:12px;margin-top:3px">List: ${esc(b.highway_name)}</div>` : ''}`
+        : '<span class="chip bad">✗ Not on list</span>'}</td>
       <td>${esc(b.contact_name)}<div style="font-size:13px">${esc(b.phone)}</div><div style="font-size:13px">${esc(b.email)}</div></td>
       <td class="num"><b>${esc(money(b.amount))}</b></td>
       <td class="num">${l.miles ? '$' + (b.amount / l.miles).toFixed(2) : '—'}</td>
       <td class="num" style="color:${diff == null ? 'inherit' : diff > 0 ? 'var(--bad)' : 'var(--good)'}">${diff == null ? '—' : (diff > 0 ? '+' : '−') + money(Math.abs(diff))}</td>
       <td style="white-space:nowrap">${esc(fmtDateTime(b.updated_at))}</td>
       <td><div class="actions">${b.status === 'awarded' ? '<span class="status awarded">Awarded</span>'
-        : l.status === 'awarded' ? '' : `<button class="btn sm primary" data-award="${b.id}">Award</button>`}
+        : l.status === 'awarded' ? '' : `<button class="btn sm primary" data-award="${b.id}" data-pass="${b.highway_pass}">Award</button>`}
         <button class="btn sm danger" data-delbid="${b.id}" title="Remove bid">×</button></div></td></tr>`;
     }).join('')}</tbody></table></div>`;
   wire(l);
@@ -390,7 +392,7 @@ function wire(l) {
     await api(`/api/admin/loads/${l.id}/reopen`, { method: 'POST' }); toast('Reopened for bids'); renderBids(l.id); refreshLoads();
   };
   $$('[data-award]').forEach(b => b.onclick = async () => {
-    if (!confirm('Award this load to this carrier? Bidding will close and the load will show as covered.')) return;
+    if (!confirm((b.dataset.pass === '1' ? '' : 'Heads up: this carrier is NOT on your Highway list.\n\n') + 'Award this load to this carrier? Bidding will close and the load will show as covered.')) return;
     await api(`/api/admin/bids/${b.dataset.award}/award`, { method: 'POST' }); toast('Load awarded'); renderBids(l.id); refreshLoads();
   });
   $$('[data-delbid]').forEach(b => b.onclick = async () => {

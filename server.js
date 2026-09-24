@@ -115,6 +115,9 @@ function biddingOpen(L) {
 
 const bidStats = db.prepare(`SELECT COUNT(*) AS bid_count, MIN(amount) AS low_bid FROM bids WHERE load_id = ?`);
 
+const passStats = db.prepare(`SELECT COUNT(*) AS pass_count, MIN(b.amount) AS low_pass_bid FROM bids b
+  JOIN qualified_carriers q ON q.mc = b.mc WHERE b.load_id = ?`);
+
 function publicLoad(L) {
   const o = {};
   for (const f of PUBLIC_FIELDS) o[f] = L[f];
@@ -127,7 +130,9 @@ function publicLoad(L) {
 
 function adminLoad(L) {
   const s = bidStats.get(L.id);
-  return { ...L, route_geojson: undefined, bid_count: s.bid_count, low_bid: s.low_bid, bidding_open: biddingOpen(L) };
+  const h = passStats.get(L.id);
+  return { ...L, route_geojson: undefined, bid_count: s.bid_count, low_bid: s.low_bid, bidding_open: biddingOpen(L),
+    pass_count: h.pass_count, low_pass_bid: h.low_pass_bid };
 }
 
 function insertLoad(data) {
@@ -218,7 +223,7 @@ function publicConfig() {
     tagline: getSetting('board_tagline', 'Truckload freight available for bid'),
     contact_phone: getSetting('default_contact_phone', ''),
     contact_email: getSetting('default_contact_email', ''),
-    bid_terms: getSetting('bid_terms', 'Bids are all-in USD (linehaul + fuel). Carrier must be approved through Highway before bidding. Submitting a bid does not guarantee award; we will contact the awarded carrier directly.'),
+    bid_terms: getSetting('bid_terms', 'Bids are all-in USD (linehaul + fuel). Submitting a bid does not guarantee award; we will contact the awarded carrier directly.'),
   };
 }
 
@@ -251,28 +256,20 @@ async function handle(req, res) {
     return send(res, 200, publicLoad(L));
   }
 
-  if (m === 'POST' && p === '/api/qualify') {
-    if (limited('q:' + ip, 30, 600000)) return fail(res, 429, 'Too many checks. Please wait a few minutes and try again.');
-    const { mc } = await readBody(req, 10000);
-    const r = await qualify.check(mc);
-    if (r.reason === 'invalid') return fail(res, 400, 'Enter a valid MC number (digits only, e.g. 123456).');
-    return send(res, 200, { qualified: r.ok, mc: r.mc, name: r.ok ? r.name : undefined });
-  }
-
   if (m === 'POST' && (mm = p.match(/^\/api\/loads\/([\w-]+)\/bids$/))) {
     if (limited('b:' + ip, 20, 600000)) return fail(res, 429, 'Too many bids from this connection. Please wait a few minutes.');
     const L = db.prepare('SELECT * FROM loads WHERE public_id = ?').get(mm[1]);
     if (!L || L.status === 'draft') return fail(res, 404, 'This load is no longer posted.');
     if (!biddingOpen(L)) return fail(res, 409, 'Bidding is closed for this load.');
     const b = await readBody(req, 20000);
-    const q = await qualify.check(b.mc);
-    if (!q.ok) return fail(res, 403, q.reason === 'invalid'
-      ? 'Enter a valid MC number.'
-      : `MC ${q.mc} is not on our approved carrier list. Complete Highway onboarding with us to bid.`);
+    const mc = qualify.normalizeMC(b.mc);
+    if (!mc) return fail(res, 400, 'Enter your MC number (digits only, e.g. 123456).');
+    // Highway check happens behind the scenes for the admin view; it never blocks the bid.
+    qualify.check(mc).catch(() => {});
     const amount = Math.round(Number(String(b.amount || '').replace(/[^0-9.]/g, '')) * 100) / 100;
     if (!(amount >= 50 && amount <= 250000)) return fail(res, 400, 'Enter your all-in rate in dollars, e.g. 2150.');
     const s = v => (v == null ? '' : String(v).trim().slice(0, 300));
-    const company = s(b.company) || q.name, contact = s(b.contact_name), email = s(b.email), phone = s(b.phone);
+    const company = s(b.company), contact = s(b.contact_name), email = s(b.email), phone = s(b.phone);
     if (!company) return fail(res, 400, 'Enter your company name.');
     if (!contact) return fail(res, 400, 'Enter a contact name.');
     if (!email && !phone) return fail(res, 400, 'Enter a phone number or email so we can reach you.');
@@ -281,7 +278,7 @@ async function handle(req, res) {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(load_id, mc) DO UPDATE SET company=excluded.company, contact_name=excluded.contact_name, email=excluded.email,
         phone=excluded.phone, amount=excluded.amount, notes=excluded.notes, ip=excluded.ip, updated_at=datetime('now')`)
-      .run(L.id, q.mc, company, contact, email, phone, amount, s(b.notes).slice(0, 1000), ip);
+      .run(L.id, mc, company, contact, email, phone, amount, s(b.notes).slice(0, 1000), ip);
     const st = bidStats.get(L.id);
     return send(res, 200, { ok: true, amount, low_bid: st.low_bid, bid_count: st.bid_count, you_are_low: amount <= st.low_bid });
   }
@@ -326,7 +323,8 @@ async function handle(req, res) {
       return send(res, 200, adminLoad(db.prepare('SELECT * FROM loads WHERE id = ?').get(id)));
     }
     if (m === 'GET' && (mm = p.match(/^\/api\/admin\/loads\/(\d+)\/bids$/))) {
-      return send(res, 200, db.prepare('SELECT * FROM bids WHERE load_id = ? ORDER BY amount ASC, created_at ASC').all(Number(mm[1])));
+      return send(res, 200, db.prepare(`SELECT b.*, CASE WHEN q.mc IS NULL THEN 0 ELSE 1 END AS highway_pass, q.name AS highway_name
+        FROM bids b LEFT JOIN qualified_carriers q ON q.mc = b.mc WHERE b.load_id = ? ORDER BY b.amount ASC, b.created_at ASC`).all(Number(mm[1])));
     }
     if (m === 'POST' && (mm = p.match(/^\/api\/admin\/bids\/(\d+)\/award$/))) {
       const bid = db.prepare('SELECT * FROM bids WHERE id = ?').get(Number(mm[1]));
@@ -349,9 +347,9 @@ async function handle(req, res) {
     }
     if (m === 'GET' && p === '/api/admin/bids.csv') {
       const rows = db.prepare(`SELECT l.ref AS load_ref, l.public_id, l.origin_city || ', ' || l.origin_state AS origin, l.dest_city || ', ' || l.dest_state AS destination,
-        l.pickup_date, l.miles, b.mc, b.company, b.contact_name, b.phone, b.email, b.amount,
+        l.pickup_date, l.miles, b.mc, CASE WHEN q.mc IS NULL THEN 'Not on list' ELSE 'Pass' END AS highway, b.company, b.contact_name, b.phone, b.email, b.amount,
         CASE WHEN l.miles > 0 THEN ROUND(b.amount / l.miles, 2) END AS rate_per_mile, b.status, b.notes, b.created_at, b.updated_at
-        FROM bids b JOIN loads l ON l.id = b.load_id ORDER BY l.id DESC, b.amount ASC`).all();
+        FROM bids b JOIN loads l ON l.id = b.load_id LEFT JOIN qualified_carriers q ON q.mc = b.mc ORDER BY l.id DESC, b.amount ASC`).all();
       return send(res, 200, toCSV(rows) || 'no bids yet', { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="bids.csv"' });
     }
     if (m === 'GET' && p === '/api/admin/template.csv') {

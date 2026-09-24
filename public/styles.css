@@ -206,3 +206,4 @@ legend { font-family: var(--display); font-weight: 700; font-size: 16px; text-tr
 .help li { margin-bottom: 4px; }
 .footer { border-top: 1px solid var(--line); padding-block: 18px; font-size: 13px; color: var(--muted); }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+#bidsDlg { width: min(1080px, calc(100vw - 24px)); }

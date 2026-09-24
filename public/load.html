@@ -30,7 +30,7 @@
 <script>
 $('#mark').innerHTML = TRUCK_ICON;
 const pid = location.pathname.split('/').filter(Boolean)[1];
-let L0 = null, cfg = {}, qualified = null;
+let L0 = null, cfg = {};
 
 function specs(l) {
   const items = [
@@ -120,53 +120,18 @@ function renderBidbox() {
     return;
   }
 
-  const steps = `<div class="steps"><span class="${qualified ? '' : 'on'}"><b>1</b>Verify MC</span><span class="${qualified ? 'on' : ''}"><b>2</b>Place bid</span></div>`;
-
-  if (!qualified) {
-    const saved = store.get('carrier') || {};
-    box.innerHTML = top + `<div class="bidbox-body">
-      ${steps}
-      <h2>Bid on this load</h2>
-      <p class="muted" style="margin:0">Only carriers approved through Highway can bid. Enter your MC number to check.</p>
-      <form id="qform" class="stack" novalidate>
-        <div class="field"><label for="mc">MC number</label>
-          <input id="mc" inputmode="numeric" autocomplete="off" placeholder="e.g. 123456" value="${esc(saved.mc || '')}" required></div>
-        <div id="qmsg" aria-live="polite"></div>
-        <button class="btn primary" type="submit" id="qbtn">Check eligibility</button>
-      </form></div>`;
-    $('#qform').onsubmit = async e => {
-      e.preventDefault();
-      const btn = $('#qbtn'); btn.disabled = true; btn.textContent = 'Checking…';
-      $('#qmsg').innerHTML = '';
-      try {
-        const r = await api('/api/qualify', { method: 'POST', body: { mc: $('#mc').value } });
-        if (r.qualified) {
-          qualified = r;
-          store.set('carrier', { ...(store.get('carrier') || {}), mc: r.mc, company: (store.get('carrier') || {}).company || r.name });
-          renderBidbox();
-        } else {
-          const contact = [cfg.contact_phone, cfg.contact_email].filter(Boolean).join(' · ');
-          $('#qmsg').innerHTML = `<div class="notice err"><b>MC ${esc(r.mc)} isn't on our approved carrier list.</b><br>
-            You'll need to complete Highway onboarding with ${esc(cfg.company || 'us')} before you can bid.${contact ? ' Contact ' + esc(contact) + ' to get set up.' : ''}</div>`;
-        }
-      } catch (err) {
-        $('#qmsg').innerHTML = `<div class="notice err">${esc(err.message)}</div>`;
-      } finally { btn.disabled = false; btn.textContent = 'Check eligibility'; }
-    };
-    return;
-  }
-
   const c = store.get('carrier') || {};
   box.innerHTML = top + `<div class="bidbox-body">
-    ${steps}
-    <div class="notice ok qualified-as"><span>✓ Approved: <b>MC ${esc(qualified.mc)}</b>${qualified.name ? ' · ' + esc(qualified.name) : ''}</span>
-      <button class="btn sm" type="button" id="chg">Change</button></div>
+    <h2>Bid on this load</h2>
     ${mine ? `<div class="notice warn">You bid ${esc(money(mine.amount))} on ${esc(fmtDateTime(mine.at))}. Submitting again replaces your bid.</div>` : ''}
     <form id="bform" class="stack" novalidate>
       <div class="field"><label for="amount">All-in rate <span class="hint">(linehaul + fuel, USD)</span></label>
         <div class="money"><input id="amount" inputmode="decimal" autocomplete="off" placeholder="0" value="${mine ? esc(mine.amount) : ''}" required></div>
         <div class="rpm" id="rpm" style="margin-top:4px"></div></div>
-      <div class="field"><label for="company">Company</label><input id="company" autocomplete="organization" value="${esc(c.company || qualified.name || '')}" required></div>
+      <div class="grid g2">
+        <div class="field"><label for="mc">MC number</label><input id="mc" inputmode="numeric" autocomplete="off" placeholder="e.g. 123456" value="${esc(c.mc || '')}" required></div>
+        <div class="field"><label for="company">Company</label><input id="company" autocomplete="organization" value="${esc(c.company || '')}" required></div>
+      </div>
       <div class="grid g2">
         <div class="field"><label for="cname">Your name</label><input id="cname" autocomplete="name" value="${esc(c.contact_name || '')}" required></div>
         <div class="field"><label for="phone">Phone</label><input id="phone" type="tel" autocomplete="tel" value="${esc(c.phone || '')}"></div>
@@ -179,15 +144,14 @@ function renderBidbox() {
     </form></div>`;
   const upd = () => { const v = Number($('#amount').value.replace(/[^0-9.]/g, '')); $('#rpm').textContent = v && l.miles ? perMile(v, l.miles) + ` · ${Number(l.miles).toLocaleString()} mi` : ''; };
   $('#amount').addEventListener('input', upd); upd();
-  $('#chg').onclick = () => { qualified = null; renderBidbox(); };
   $('#bform').onsubmit = async e => {
     e.preventDefault();
-    const body = { mc: qualified.mc, amount: $('#amount').value, company: $('#company').value, contact_name: $('#cname').value,
+    const body = { mc: $('#mc').value, amount: $('#amount').value, company: $('#company').value, contact_name: $('#cname').value,
       phone: $('#phone').value, email: $('#email').value, notes: $('#bnotes').value };
     const btn = $('#bbtn'); btn.disabled = true; btn.textContent = 'Submitting…';
     try {
       const r = await api(`/api/loads/${encodeURIComponent(pid)}/bids`, { method: 'POST', body });
-      store.set('carrier', { mc: qualified.mc, company: body.company, contact_name: body.contact_name, phone: body.phone, email: body.email });
+      store.set('carrier', { mc: body.mc, company: body.company, contact_name: body.contact_name, phone: body.phone, email: body.email });
       store.set('bid:' + pid, { amount: r.amount, at: new Date().toISOString() });
       L0.low_bid = r.low_bid; L0.bid_count = r.bid_count;
       renderBidbox();

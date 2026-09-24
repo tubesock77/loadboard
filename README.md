@@ -1,6 +1,6 @@
 # Freight Load Board
 
-A truckload bidding site you send carriers to. Carriers see a load's lane, map, dates and specs. They enter their MC number, and the site checks it against your Highway-approved carrier list. Only approved carriers can place a bid. You post loads, compare bids and award carriers from the admin area.
+A truckload bidding site you send carriers to. Carriers see a load's lane, map, dates and specs. Any carrier can bid. Behind the scenes, each bid's MC number is checked against your Highway-approved carrier list, and admin shows who passes. You post loads, compare bids and award carriers from the admin area.
 
 - **Carrier board**: `https://your-site/` shows every open load, with search and filters
 - **Load page**: `https://your-site/load/L-XXXXXX` has the map, pickup and delivery, specs, requirements, the current bid and the bid form. This is the link you send.
@@ -13,15 +13,14 @@ There are no third-party packages. It needs only Node.js 22.13 or newer and uses
 ## What carriers see
 
 1. They open the load link. They see the lane, route map, miles, dates and windows, equipment, temp, weight, commodity and requirements.
-2. **Verify MC.** They type their MC number. If it's on your Highway list, the bid form unlocks with their company name filled in. If it isn't, they get a message telling them to finish Highway onboarding with you, plus your phone and email.
-3. **Place bid.** They enter an all-in rate, which is also shown as $/mile, plus a contact name, phone or email, and optional notes.
+2. **Place bid.** They enter an all-in rate (also shown as $/mile), their MC number and company, plus a contact name, phone or email, and optional notes.
 4. They see the current bid, which updates every 30 seconds. They can rebid, and a new bid replaces their earlier one. Bidding closes on its own at the deadline, or when you close or award the load.
 
 ## What you can do in admin
 
 - **+ New load**: enter the lane, dates and windows, the bid deadline, equipment and freight details, requirements and notes. You can also add a **private target rate** that carriers never see, and contact info. Miles and the map fill in automatically from the city, state and ZIP.
 - **Import loads**: upload a CSV or XLSX with many loads at once. Click **Download template** in that window for the column names. Common names also work, such as "Pickup City" or "Ship Date".
-- **Bids**: bids are listed low to high, with $/mi and each bid's difference from your target. **Award** marks the load as covered and closes bidding. **Reopen for bids** undoes that.
+- **Bids**: bids are listed low to high, each marked **✓ Pass** or **✗ Not on list** for Highway, with $/mi and each bid's difference from your target. **Award** marks the load as covered and closes bidding. **Reopen for bids** undoes that.
 - **Link**: copies the carrier link for a load. **Copy board link** copies the link to the whole board.
 - **Edit → Duplicate**: copies a load as a draft, which is useful for repeat lanes. **Status** can be Open, Draft (hidden) or Closed.
 - **Export all bids**: downloads a CSV of every bid.
@@ -36,7 +35,7 @@ Export or copy your Highway-approved carriers into a Google Sheet or Excel file 
 
 **Excel (OneDrive/SharePoint):** Share → **Anyone with the link can view**, then paste the link. If your IT blocks anonymous links, use **Upload a file** instead.
 
-The site re-reads the link every 30 minutes. When a carrier isn't found, it also pulls a fresh copy right away, so someone you just approved can bid within a minute or two. Use **Check an MC number** to test.
+The site re-reads the link every 30 minutes. When a carrier isn't found, it also pulls a fresh copy right away, so someone you just approved shows as passing within a minute or two. Use **Check an MC number** to test.
 
 Once a link is saved, updating the sheet is all you need to do. You don't have to touch the site again.
 
