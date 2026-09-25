@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>My bids · {company}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<header class="signbar">
+  <div class="wrap">
+    <a class="brand" href="/">
+      <span class="brand-mark" id="mark"></span>
+      <span><span class="brand-name" data-company>Load Board</span><div class="brand-sub" data-tagline></div></span>
+    </a>
+    <nav><a href="/">All loads</a></nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="board-head">
+    <div>
+      <h1>My bids</h1>
+      <div class="muted" id="info">Loading…</div>
+    </div>
+    <button class="btn" type="button" id="refresh">Refresh</button>
+  </div>
+  <div class="loads" id="list"></div>
+  <p class="help" style="margin-top:18px">Your bids are remembered on this phone or computer. Updates every 30 seconds. If you bid from another device, your bids show up there instead.</p>
+</main>
+
+<script src="/static/common.js"></script>
+<script>
+$('#mark').innerHTML = TRUCK_ICON;
+const ORDER = { outbid: 0, leading: 1, won: 2, closed: 3, covered: 4 };
+
+async function load() {
+  let list = [];
+  try { list = await myBids.status(); }
+  catch (e) { $('#list').innerHTML = `<div class="notice err">${esc(e.message)}</div>`; return; }
+  list.sort((a, b) => (ORDER[a.state] - ORDER[b.state]) || String(a.pickup_date || '').localeCompare(String(b.pickup_date || '')));
+  const out = list.filter(x => x.state === 'outbid').length, lead = list.filter(x => x.state === 'leading').length;
+  $('#info').textContent = list.length
+    ? `${lead} leading · ${out} outbid · updated ${new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`
+    : 'No bids yet.';
+  if (!list.length) {
+    $('#list').innerHTML = `<div class="panel empty">You haven't bid on any loads from this device yet. <a href="/">See available loads</a>.</div>`;
+    return;
+  }
+  $('#list').innerHTML = list.map(b => {
+    const k = BID_STATE[b.state] || BID_STATE.closed;
+    const tl = timeLeft(b.bid_deadline);
+    const action = b.state === 'outbid' ? `<a class="btn primary" href="/load/${esc(b.public_id)}">Rebid${b.next_max ? ' ' + esc(money(b.next_max)) + ' or less' : ''}</a>`
+      : b.state === 'leading' ? `<a class="btn" href="/load/${esc(b.public_id)}">View load</a>`
+      : `<a class="btn" href="/load/${esc(b.public_id)}">Details</a>`;
+    return `<div class="panel mybid state-${b.state}">
+      <div>
+        <div class="mystatus ${k.cls}" style="padding:6px 10px;display:inline-flex;font-size:14px"><span class="dot" style="width:20px;height:20px"><span style="font-size:11px">${k.icon}</span></span>${esc(k.label)}</div>
+        <div class="lane" style="margin-top:8px">${esc(b.origin)} <span class="arrow">→</span> ${esc(b.dest)}</div>
+        <div class="muted" style="font-size:14px">${[b.pickup_date ? 'Pick up ' + fmtDate(b.pickup_date) : '', b.equipment, b.ref ? '#' + b.ref : '', tl && b.state !== 'won' && b.state !== 'covered' ? tl.text : ''].filter(Boolean).map(esc).join(' · ')}</div>
+        <div class="nums">
+          <div><span>Your bid</span><b>${esc(money(b.my_bid))}</b></div>
+          <div><span>Current bid</span><b>${esc(money(b.low_bid))}</b></div>
+          <div><span>Bids</span><b>${b.bid_count}</b></div>
+        </div>
+      </div>
+      <div>${action}</div>
+    </div>`;
+  }).join('');
+}
+$('#refresh').onclick = load;
+applyBranding(); load();
+setInterval(() => { if (!document.hidden) load(); }, 30000);
+</script>
+</body>
+</html>

@@ -207,3 +207,37 @@ legend { font-family: var(--display); font-weight: 700; font-size: 16px; text-tr
 .footer { border-top: 1px solid var(--line); padding-block: 18px; font-size: 13px; color: var(--muted); }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 #bidsDlg { width: min(1080px, calc(100vw - 24px)); }
+
+/* pop-up confirmation (bottom sheet on phones) */
+.pop { position: fixed; inset: 0; background: rgba(10, 15, 30, .55); display: grid; place-items: center; z-index: 100; padding: 16px; animation: popfade .15s ease-out; }
+.pop-card { background: var(--surface); color: var(--ink); border-radius: 16px; width: min(440px, 100%); padding: 24px 22px calc(22px + env(safe-area-inset-bottom, 0px)); box-shadow: 0 20px 60px rgba(0,0,0,.3); display: grid; gap: 14px; text-align: center; animation: popup .2s ease-out; }
+.pop-icon { width: 64px; height: 64px; border-radius: 50%; display: grid; place-items: center; margin: 0 auto; font: 700 32px var(--body); }
+.pop-icon.good { background: color-mix(in srgb, var(--good) 15%, transparent); color: var(--good); }
+.pop-icon.bad { background: var(--amber-tint); color: var(--amber); }
+.pop-card h2 { font-size: 28px; }
+.pop-amount { font-family: var(--mono); font-size: 34px; font-weight: 600; }
+.pop-status { border-radius: 10px; padding: 12px 14px; font-size: 16px; }
+.pop-status.good { background: color-mix(in srgb, var(--good) 12%, transparent); color: var(--good); }
+.pop-status.bad { background: var(--amber-tint); color: var(--amber); }
+.pop-actions { display: grid; gap: 8px; }
+.pop-actions .btn { width: 100%; padding: 13px 16px; font-size: 16px; }
+@media (max-width: 520px) { .pop { place-items: end center; padding: 0; } .pop-card { border-radius: 18px 18px 0 0; width: 100%; } }
+@keyframes popfade { from { opacity: 0; } }
+@keyframes popup { from { transform: translateY(16px); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .pop, .pop-card { animation: none; } }
+
+/* bid status line + My bids */
+.mystatus { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 10px; font-weight: 600; }
+.mystatus.good { background: color-mix(in srgb, var(--good) 12%, transparent); color: var(--good); }
+.mystatus.bad { background: var(--amber-tint); color: var(--amber); }
+.mystatus.muted { background: var(--surface-2); color: var(--muted); }
+.mystatus .dot { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: currentColor; flex: none; }
+.mystatus .dot span { color: var(--surface); font-size: 14px; font-weight: 700; }
+.mybid { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px; padding: 16px 18px; align-items: center; }
+.mybid .lane { font-size: 21px; }
+.mybid .nums { display: flex; gap: 22px; margin-top: 8px; flex-wrap: wrap; }
+.mybid .nums b { display: block; font-family: var(--mono); font-size: 18px; }
+.mybid .nums span { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 700; }
+.mybid.state-outbid { border-left: 4px solid var(--amber); }
+.mybid.state-leading, .mybid.state-won { border-left: 4px solid var(--good); }
+@media (max-width: 600px) { .mybid { grid-template-columns: 1fr; } .mybid .btn { width: 100%; } }

@@ -78,3 +78,38 @@ async function applyBranding() {
 }
 
 const TRUCK_ICON = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 6h13v10H1z"/><path d="M14 9h4l3 3v4h-7"/><circle cx="5.5" cy="17.5" r="1.8"/><circle cx="17.5" cy="17.5" r="1.8"/></svg>';
+
+// ---- carrier's own bids (private tokens kept in this browser) ----
+const myBids = {
+  all() { return store.get('bidTokens') || {}; },
+  token(pid) { return this.all()[pid] || null; },
+  save(pid, token) { const m = this.all(); m[pid] = token; store.set('bidTokens', m); },
+  async status(pids) {
+    const m = this.all();
+    const tokens = (pids || Object.keys(m)).map(p => m[p]).filter(Boolean);
+    if (!tokens.length) return [];
+    return api('/api/my-bids', { method: 'POST', body: { tokens } });
+  },
+};
+const BID_STATE = {
+  leading: { label: "You're the lowest bid", cls: 'good', icon: '✓' },
+  outbid: { label: "You've been outbid", cls: 'bad', icon: '!' },
+  won: { label: 'Awarded to you', cls: 'good', icon: '★' },
+  covered: { label: 'Load covered', cls: 'muted', icon: '–' },
+  closed: { label: 'Bidding closed', cls: 'muted', icon: '–' },
+};
+
+// simple pop-up (bottom sheet on phones)
+function popup(html) {
+  const wrap = document.createElement('div');
+  wrap.className = 'pop';
+  wrap.setAttribute('role', 'dialog'); wrap.setAttribute('aria-modal', 'true');
+  wrap.innerHTML = `<div class="pop-card">${html}</div>`;
+  const close = () => { wrap.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = e => { if (e.key === 'Escape') close(); };
+  wrap.addEventListener('click', e => { if (e.target === wrap || e.target.closest('[data-pop-close]')) close(); });
+  document.addEventListener('keydown', onKey);
+  document.body.appendChild(wrap);
+  const f = wrap.querySelector('button, a'); if (f) f.focus();
+  return { el: wrap, close };
+}

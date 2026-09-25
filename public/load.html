@@ -16,7 +16,7 @@
       <span class="brand-mark" id="mark"></span>
       <span><span class="brand-name" data-company>Load Board</span><div class="brand-sub" data-tagline></div></span>
     </a>
-    <nav><a href="/">All loads</a></nav>
+    <nav><a href="/my-bids">My bids</a><a href="/">All loads</a></nav>
   </div>
 </header>
 
@@ -30,7 +30,7 @@
 <script>
 $('#mark').innerHTML = TRUCK_ICON;
 const pid = location.pathname.split('/').filter(Boolean)[1];
-let L0 = null, cfg = {};
+let L0 = null, cfg = {}, myState = null;
 
 function specs(l) {
   const items = [
@@ -123,24 +123,25 @@ function renderBidbox() {
     </div>`;
 
   if (!l.bidding_open) {
-    box.innerHTML = top + `<div class="bidbox-body"><h2>${l.status === 'awarded' ? 'This load is covered' : 'Bidding is closed'}</h2>
+    box.innerHTML = top + `<div class="bidbox-body"><h2>${myState && myState.state === 'won' ? 'You won this load' : l.status === 'awarded' ? 'This load is covered' : 'Bidding is closed'}</h2>
+      ${myState ? statusLine(myState) : ''}
       <p class="muted" style="margin:0">Thanks for your interest. <a href="/">See other available loads</a>.</p></div>`;
     return;
   }
 
   const c = store.get('carrier') || {};
   const step = Number(l.bid_step || 0);
-  const iAmLow = mine && l.bid_count && Number(mine.amount) <= Number(l.low_bid);
+  const iAmLow = myState ? myState.state === 'leading' : (mine && l.bid_count && Number(mine.amount) <= Number(l.low_bid));
   const stepHint = !step ? ''
     : !l.bid_count ? `<div class="hint" style="margin-top:4px">Bids go in ${esc(money(step))} steps, like ${esc(money(1000))} or ${esc(money(1000 + step))}.</div>`
     : iAmLow ? `<div class="hint" style="margin-top:4px">Yours is the current bid. To lower it, bid <b>${esc(money(l.low_bid - step))} or less</b> (${esc(money(step))} steps).</div>`
     : `<div class="hint" style="margin-top:4px;color:var(--ink)">To take the lead, bid <b>${esc(money(l.low_bid - step))} or less</b> (${esc(money(step))} steps).</div>`;
   box.innerHTML = top + `<div class="bidbox-body">
     <h2>Bid on this load</h2>
-    ${mine ? `<div class="notice warn">You bid ${esc(money(mine.amount))} on ${esc(fmtDateTime(mine.at))}. Submitting again replaces your bid.</div>` : ''}
+    ${myState ? statusLine(myState) : mine ? `<div class="notice warn">You bid ${esc(money(mine.amount))} on ${esc(fmtDateTime(mine.at))}. Submitting again replaces your bid.</div>` : ''}
     <form id="bform" class="stack" novalidate>
       <div class="field"><label for="amount">All-in rate <span class="hint">(linehaul + fuel, USD)</span></label>
-        <div class="money"><input id="amount" inputmode="decimal" autocomplete="off" placeholder="0" value="${mine ? esc(mine.amount) : ''}" required></div>
+        <div class="money"><input id="amount" inputmode="decimal" autocomplete="off" placeholder="0" value="${myState && myState.state === 'outbid' && myState.next_max ? esc(myState.next_max) : mine ? esc(mine.amount) : ''}" required></div>
         <div class="rpm" id="rpm" style="margin-top:4px"></div>
         ${stepHint}</div>
       <div class="grid g2">
@@ -159,6 +160,22 @@ function renderBidbox() {
     </form></div>`;
   const upd = () => { const v = Number($('#amount').value.replace(/[^0-9.]/g, '')); $('#rpm').textContent = v && l.miles ? perMile(v, l.miles) + ` · ${Number(l.miles).toLocaleString()} mi` : ''; };
   $('#amount').addEventListener('input', upd); upd();
+  // MC number -> fill in company name from the carrier list; leave blank to type if not found
+  let autoName = '', lookupTimer = null, lastMc = '';
+  const lookup = async () => {
+    const mc = $('#mc').value.replace(/\D/g, '').replace(/^0+/, '');
+    if (mc === lastMc) return; lastMc = mc;
+    const co = $('#company');
+    if (mc.length < 3) { if (co.value === autoName) co.value = ''; autoName = ''; return; }
+    try {
+      const r = await api('/api/carrier-name?mc=' + encodeURIComponent(mc));
+      if (r.name) { if (!co.value || co.value === autoName) co.value = r.name; autoName = r.name; }
+      else { if (co.value === autoName) co.value = ''; autoName = ''; }
+    } catch (_) { /* leave the field for typing */ }
+  };
+  $('#mc').addEventListener('input', () => { clearTimeout(lookupTimer); lookupTimer = setTimeout(lookup, 400); });
+  $('#mc').addEventListener('blur', lookup);
+  $('#company').addEventListener('input', () => { autoName = ''; });
   $('#bform').onsubmit = async e => {
     e.preventDefault();
     const body = { mc: $('#mc').value, amount: $('#amount').value, company: $('#company').value, contact_name: $('#cname').value,
@@ -168,12 +185,11 @@ function renderBidbox() {
       const r = await api(`/api/loads/${encodeURIComponent(pid)}/bids`, { method: 'POST', body });
       store.set('carrier', { mc: body.mc, company: body.company, contact_name: body.contact_name, phone: body.phone, email: body.email });
       store.set('bid:' + pid, { amount: r.amount, at: new Date().toISOString() });
+      if (r.token) myBids.save(pid, r.token);
       L0.low_bid = r.low_bid; L0.bid_count = r.bid_count;
+      myState = { state: r.you_are_low ? 'leading' : 'outbid', my_bid: r.amount, low_bid: r.low_bid, next_max: r.next_max };
       renderBidbox();
-      const note = document.createElement('div');
-      note.className = 'notice ok';
-      note.innerHTML = `<b>Bid received: ${esc(money(r.amount))}.</b> ${r.you_are_low ? "Yours is currently the lowest bid." : `Current bid is ${esc(money(r.low_bid))}.`} We'll contact you if you're awarded.`;
-      $('.bidbox-body', box).prepend(note);
+      showBidPopup(r);
     } catch (err) {
       $('#bmsg').innerHTML = `<div class="notice err">${esc(err.message)}</div>`;
       btn.disabled = false; btn.textContent = mine ? 'Update my bid' : 'Submit bid';
@@ -181,8 +197,39 @@ function renderBidbox() {
   };
 }
 
+function statusLine(s) {
+  const k = BID_STATE[s.state] || BID_STATE.closed;
+  const extra = s.state === 'leading' ? `Your bid ${money(s.my_bid)} is the current bid.`
+    : s.state === 'outbid' ? `Your bid ${money(s.my_bid)} · current bid ${money(s.low_bid)}${s.next_max ? ` · rebid ${money(s.next_max)} or less` : ''}`
+    : `Your bid ${money(s.my_bid)}`;
+  return `<div class="mystatus ${k.cls}"><span class="dot"><span>${k.icon}</span></span><div>${esc(k.label)}<div style="font-weight:500;font-size:14px">${esc(extra)}</div></div></div>`;
+}
+function showBidPopup(r) {
+  const lead = r.you_are_low;
+  const p = popup(`
+    <div class="pop-icon ${lead ? 'good' : 'bad'}">${lead ? '✓' : '!'}</div>
+    <h2>Bid received</h2>
+    <div class="pop-amount">${esc(money(r.amount))}</div>
+    <div class="muted">${esc(place(L0.origin_city, L0.origin_state))} → ${esc(place(L0.dest_city, L0.dest_state))}${L0.ref ? ' · #' + esc(L0.ref) : ''}</div>
+    <div class="pop-status ${lead ? 'good' : 'bad'}">${lead
+      ? "<b>You're the lowest bid.</b><br>We'll contact you if you're awarded. Check <b>My bids</b> anytime to see if you've been outbid."
+      : `<b>You're not the lowest bid.</b><br>The current bid is ${esc(money(r.low_bid))}.${r.next_max ? ` Bid <b>${esc(money(r.next_max))} or less</b> to take the lead.` : ''}`}</div>
+    <div class="pop-actions">
+      ${lead ? '' : '<button class="btn primary" type="button" id="popRebid">Rebid now</button>'}
+      <a class="btn ${lead ? 'primary' : ''}" href="/my-bids">See my bids</a>
+      <button class="btn" type="button" data-pop-close>${lead ? 'Done' : 'Close'}</button>
+    </div>`);
+  const rb = p.el.querySelector('#popRebid');
+  if (rb) rb.onclick = () => { p.close(); const a = $('#amount'); if (a) { a.value = r.next_max || ''; a.dispatchEvent(new Event('input')); a.focus(); a.select(); } };
+}
+async function refreshMyState() {
+  if (!myBids.token(pid)) return;
+  try { const [s] = await myBids.status([pid]); if (s) myState = s; } catch (_) { /* ignore */ }
+}
+
 (async () => {
   cfg = await applyBranding();
+  await refreshMyState();
   try {
     L0 = await api('/api/loads/' + encodeURIComponent(pid));
     renderPage();
@@ -196,6 +243,7 @@ setInterval(async () => {
   try { const n = await api('/api/loads/' + encodeURIComponent(pid)); if (n.low_bid !== L0.low_bid || n.bid_count !== L0.bid_count || n.bidding_open !== L0.bidding_open) {
     const typing = document.activeElement && document.activeElement.closest && document.activeElement.closest('#bidbox');
     Object.assign(L0, { low_bid: n.low_bid, bid_count: n.bid_count, bidding_open: n.bidding_open, status: n.status });
+    await refreshMyState();
     if (!typing) renderBidbox();
   } } catch (_) { /* ignore */ }
 }, 30000);

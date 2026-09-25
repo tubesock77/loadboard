@@ -582,12 +582,41 @@ async function handle(req, res) {
   // pages
   if (m === 'GET' && (p === '/' || p === '/index.html')) return serveFile(res, 'index.html');
   if (m === 'GET' && /^\/load\/[\w-]+\/?$/.test(p)) return serveFile(res, 'load.html');
+  if (m === 'GET' && (p === '/my-bids' || p === '/my-bids/')) return serveFile(res, 'mybids.html');
   if (m === 'GET' && (p === '/admin' || p === '/admin/')) return serveFile(res, 'admin.html');
   if (m === 'GET' && p.startsWith('/static/')) return serveFile(res, p.slice(8).replace(/\.\./g, ''));
   if (m === 'GET' && p === '/healthz') return send(res, 200, 'ok');
 
   // ---- public API ----
   if (m === 'GET' && p === '/api/config') return send(res, 200, publicConfig());
+
+  // carrier's own bid status, looked up by the private tokens saved in their browser
+  if (m === 'POST' && p === '/api/my-bids') {
+    if (limited('mb:' + ip, 120, 600000)) return fail(res, 429, 'Too many requests. Please wait a minute.');
+    const { tokens } = await readBody(req, 20000);
+    const list = (Array.isArray(tokens) ? tokens : []).map(String).filter(t => /^[\w-]{8,40}$/.test(t)).slice(0, 100);
+    const out = [];
+    for (const t of list) {
+      const b = db.prepare('SELECT * FROM bids WHERE token = ?').get(t);
+      if (!b) continue;
+      const L = db.prepare(`SELECT * FROM loads WHERE id = ? AND status != 'draft'`).get(b.load_id);
+      if (!L) continue;
+      const st = bidStats.get(L.id);
+      const state = L.status === 'awarded' ? (L.awarded_bid_id === b.id ? 'won' : 'covered')
+        : !biddingOpen(L) ? 'closed' : (b.amount <= st.low_bid ? 'leading' : 'outbid');
+      out.push({ token: t, public_id: L.public_id, ref: L.ref, origin: [L.origin_city, L.origin_state].filter(Boolean).join(', '),
+        dest: [L.dest_city, L.dest_state].filter(Boolean).join(', '), pickup_date: L.pickup_date, equipment: L.equipment, miles: L.miles,
+        bid_deadline: L.bid_deadline, my_bid: b.amount, updated_at: b.updated_at, low_bid: st.low_bid, bid_count: st.bid_count,
+        state, next_max: bidStep() ? st.low_bid - bidStep() : null, bid_step: bidStep() });
+    }
+    return send(res, 200, out);
+  }
+
+  // bid form: fill in the carrier's company name from the MC number (blank if not on the list)
+  if (m === 'GET' && p === '/api/carrier-name') {
+    if (limited('n:' + ip, 60, 600000)) return send(res, 200, { name: '' });
+    return send(res, 200, { name: qualify.lookupName(url.searchParams.get('mc')) || '' });
+  }
 
   if (m === 'GET' && p === '/api/loads') {
     const rows = db.prepare(`SELECT * FROM loads WHERE status = 'open' ORDER BY pickup_date IS NULL, pickup_date, id`).all();
@@ -640,9 +669,13 @@ async function handle(req, res) {
       ON CONFLICT(load_id, mc) DO UPDATE SET company=excluded.company, contact_name=excluded.contact_name, email=excluded.email,
         phone=excluded.phone, amount=excluded.amount, notes=excluded.notes, ip=excluded.ip, updated_at=datetime('now')`)
       .run(L.id, mc, company, contact, email, phone, amount, s(b.notes).slice(0, 1000), ip);
+    // private token lets this carrier's browser check "am I the lowest?" later (My bids page)
+    let tok = db.prepare('SELECT token FROM bids WHERE load_id = ? AND mc = ?').get(L.id, mc).token;
+    if (!tok) { tok = crypto.randomBytes(12).toString('base64url'); db.prepare('UPDATE bids SET token = ? WHERE load_id = ? AND mc = ?').run(tok, L.id, mc); }
     const st = bidStats.get(L.id);
     smartsheetSoon();
-    return send(res, 200, { ok: true, amount, low_bid: st.low_bid, bid_count: st.bid_count, you_are_low: amount <= st.low_bid });
+    return send(res, 200, { ok: true, amount, token: tok, low_bid: st.low_bid, bid_count: st.bid_count, you_are_low: amount <= st.low_bid,
+      next_max: bidStep() ? st.low_bid - bidStep() : null });
   }
 
   // ---- admin API ----
