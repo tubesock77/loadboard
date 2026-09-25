@@ -129,13 +129,20 @@ function renderBidbox() {
   }
 
   const c = store.get('carrier') || {};
+  const step = Number(l.bid_step || 0);
+  const iAmLow = mine && l.bid_count && Number(mine.amount) <= Number(l.low_bid);
+  const stepHint = !step ? ''
+    : !l.bid_count ? `<div class="hint" style="margin-top:4px">Bids go in ${esc(money(step))} steps, like ${esc(money(1000))} or ${esc(money(1000 + step))}.</div>`
+    : iAmLow ? `<div class="hint" style="margin-top:4px">Yours is the current bid. To lower it, bid <b>${esc(money(l.low_bid - step))} or less</b> (${esc(money(step))} steps).</div>`
+    : `<div class="hint" style="margin-top:4px;color:var(--ink)">To take the lead, bid <b>${esc(money(l.low_bid - step))} or less</b> (${esc(money(step))} steps).</div>`;
   box.innerHTML = top + `<div class="bidbox-body">
     <h2>Bid on this load</h2>
     ${mine ? `<div class="notice warn">You bid ${esc(money(mine.amount))} on ${esc(fmtDateTime(mine.at))}. Submitting again replaces your bid.</div>` : ''}
     <form id="bform" class="stack" novalidate>
       <div class="field"><label for="amount">All-in rate <span class="hint">(linehaul + fuel, USD)</span></label>
         <div class="money"><input id="amount" inputmode="decimal" autocomplete="off" placeholder="0" value="${mine ? esc(mine.amount) : ''}" required></div>
-        <div class="rpm" id="rpm" style="margin-top:4px"></div></div>
+        <div class="rpm" id="rpm" style="margin-top:4px"></div>
+        ${stepHint}</div>
       <div class="grid g2">
         <div class="field"><label for="mc">MC number</label><input id="mc" inputmode="numeric" autocomplete="off" placeholder="e.g. 123456" value="${esc(c.mc || '')}" required></div>
         <div class="field"><label for="company">Company</label><input id="company" autocomplete="organization" value="${esc(c.company || '')}" required></div>

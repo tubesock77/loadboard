@@ -140,6 +140,7 @@
           <div class="field"><label for="s_cphone">Default phone</label><input id="s_cphone"></div>
           <div class="field"><label for="s_cemail">Default email</label><input id="s_cemail"></div>
         </div>
+        <div class="field" style="max-width:320px"><label for="s_step">Minimum bid step ($) <span class="hint">— bids must be multiples of this (e.g. 1,000 / 1,050) and a new low must be at least this much under the current bid. 0 = off.</span></label><input id="s_step" inputmode="decimal" placeholder="50"></div>
         <div class="field"><label for="s_terms">Bid terms shown to carriers</label><textarea id="s_terms" rows="3"></textarea></div>
         <div><button class="btn primary" type="submit">Save settings</button></div>
       </form>
@@ -602,12 +603,13 @@ function fillSettings() {
   $('#s_company').value = settings.company_name || ''; $('#s_tagline').value = settings.board_tagline || '';
   $('#s_cname').value = settings.default_contact_name || ''; $('#s_cphone').value = settings.default_contact_phone || '';
   $('#s_cemail').value = settings.default_contact_email || ''; $('#s_terms').value = settings.bid_terms || '';
+  $('#s_step').value = settings.bid_step ?? 50;
 }
 $('#settingsForm').onsubmit = async e => {
   e.preventDefault();
   settings = await api('/api/admin/settings', { method: 'PUT', body: {
     company_name: $('#s_company').value, board_tagline: $('#s_tagline').value, default_contact_name: $('#s_cname').value,
-    default_contact_phone: $('#s_cphone').value, default_contact_email: $('#s_cemail').value, bid_terms: $('#s_terms').value } });
+    default_contact_phone: $('#s_cphone').value, default_contact_email: $('#s_cemail').value, bid_terms: $('#s_terms').value, bid_step: String($('#s_step').value).replace(/[^0-9.]/g, '') || '0' } });
   applyBranding(); toast('Settings saved');
 };
 

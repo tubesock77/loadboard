@@ -139,6 +139,7 @@ function publicLoad(L) {
   const s = bidStats.get(L.id);
   o.bid_count = s.bid_count; o.low_bid = s.low_bid;
   o.bidding_open = biddingOpen(L);
+  o.bid_step = bidStep();
   o.route = L.route_geojson ? JSON.parse(L.route_geojson) : null;
   return o;
 }
@@ -233,13 +234,19 @@ function toCSV(rows) {
   return [cols.join(','), ...rows.map(r => cols.map(c => esc(r[c])).join(','))].join('\n');
 }
 
+function bidStep() {
+  const n = Number(getSetting('bid_step', '50'));
+  return isFinite(n) && n >= 0 ? n : 50;
+}
+
 function publicConfig() {
   return {
     company: getSetting('company_name', 'Brock LLC MC# 375005'),
     tagline: getSetting('board_tagline', 'Truckload freight available for bid'),
     contact_phone: getSetting('default_contact_phone', ''),
     contact_email: getSetting('default_contact_email', ''),
-    bid_terms: getSetting('bid_terms', 'Bids are all-in USD (linehaul + fuel). Submitting a bid does not guarantee award; we will contact the awarded carrier directly.'),
+    bid_step: bidStep(),
+    bid_terms: getSetting('bid_terms', `Bids are all-in USD (linehaul + fuel).${bidStep() ? ` Bids go in $${bidStep()} steps (e.g. $1,000, $${(1000 + bidStep()).toLocaleString('en-US')}), and a new low must be at least $${bidStep()} under the current bid.` : ''} Submitting a bid does not guarantee award; we will contact the awarded carrier directly.`),
   };
 }
 
@@ -606,6 +613,22 @@ async function handle(req, res) {
     qualify.check(mc).catch(() => {});
     const amount = Math.round(Number(String(b.amount || '').replace(/[^0-9.]/g, '')) * 100) / 100;
     if (!(amount >= 50 && amount <= 250000)) return fail(res, 400, 'Enter your all-in rate in dollars, e.g. 2150.');
+    // Bid step (default $50): every bid is a multiple of the step (1,000 / 1,050 / 1,100 ...),
+    // and a new low must be at least one step under the current bid - including the lead carrier lowering their own.
+    const step = bidStep();
+    if (step > 0) {
+      const fmt = n => '$' + Number(n).toLocaleString('en-US', { maximumFractionDigits: 2 });
+      if (Math.abs(amount / step - Math.round(amount / step)) > 1e-9) {
+        const down = Math.floor(amount / step) * step, up = down + step;
+        return fail(res, 400, `Bids go in ${fmt(step)} steps, like ${fmt(1000)} or ${fmt(1000 + step)}. Try ${fmt(down)} or ${fmt(up)}.`);
+      }
+      const low = db.prepare('SELECT MIN(amount) AS low FROM bids WHERE load_id = ?').get(L.id).low;
+      const otherLow = db.prepare('SELECT MIN(amount) AS low FROM bids WHERE load_id = ? AND mc != ?').get(L.id, mc).low;
+      if (otherLow != null && amount === otherLow)
+        return fail(res, 400, `${fmt(amount)} ties the current bid. Bid ${fmt(otherLow - step)} or less to take the lead.`);
+      if (low != null && amount < low && amount > low - step)
+        return fail(res, 400, `Bids must be at least ${fmt(step)} under the current bid of ${fmt(low)}. Bid ${fmt(low - step)} or less.`);
+    }
     const s = v => (v == null ? '' : String(v).trim().slice(0, 300));
     const company = s(b.company), contact = s(b.contact_name), email = s(b.email), phone = s(b.phone);
     if (!company) return fail(res, 400, 'Enter your company name.');
@@ -762,7 +785,7 @@ async function handle(req, res) {
       return send(res, 200, await qualify.check(mc));
     }
     if (p === '/api/admin/settings') {
-      const keys = ['company_name', 'board_tagline', 'default_contact_name', 'default_contact_phone', 'default_contact_email', 'bid_terms'];
+      const keys = ['company_name', 'board_tagline', 'default_contact_name', 'default_contact_phone', 'default_contact_email', 'bid_terms', 'bid_step'];
       if (m === 'PUT') { const b = await readBody(req, 20000); keys.forEach(k => { if (k in b) setSetting(k, String(b[k] ?? '').slice(0, 2000)); }); }
       const out = publicConfig(); out.default_contact_name = getSetting('default_contact_name', '');
       out.company_name = out.company; out.board_tagline = out.tagline; out.default_contact_phone = out.contact_phone; out.default_contact_email = out.contact_email;
