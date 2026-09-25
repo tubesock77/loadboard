@@ -42,7 +42,7 @@
       <div class="toolbar">
         <div class="left">
           <button class="btn primary" type="button" id="newLoad">+ New load</button>
-          <button class="btn" type="button" id="importBtn">Google Sheet / Import</button>
+          <button class="btn" type="button" id="importBtn">Sync / Import</button>
           <button class="btn" type="button" id="boardLink">Copy board link</button>
           <a class="btn" href="/api/admin/bids.csv">Export all bids</a>
         </div>
@@ -218,8 +218,17 @@
 
 <!-- import -->
 <dialog id="importDlg">
-  <div class="dlg-head"><h2>Google Sheet &amp; import</h2><button class="x" type="button" data-close aria-label="Close">×</button></div>
+  <div class="dlg-head"><h2>Sync &amp; import loads</h2><button class="x" type="button" data-close aria-label="Close">×</button></div>
   <div class="dlg-body">
+    <fieldset><legend>Smartsheet — LOAD BOARD sheet</legend>
+      <p class="help" style="margin:0">Check <b>POST</b> on a row to put it live; uncheck it (or delete the row) to close it. Edits flow through every <span id="ssMin">3</span> minutes. The site writes BOARD STATUS, BIDS, LOW BID, HWY PASS BIDS, AWARDED carrier/MC/rate and LOAD LINK back to the sheet.</p>
+      <div id="ssStatus"></div>
+      <div class="actions" style="align-items:end">
+        <div class="field" style="max-width:260px"><label for="ssSheetId">Sheet ID</label><input id="ssSheetId" inputmode="numeric"></div>
+        <button class="btn primary" type="button" id="ssRun">Sync now</button>
+        <button class="btn" type="button" id="ssSave">Save sheet ID</button>
+      </div>
+    </fieldset>
     <fieldset><legend>Keep loads in sync with a Google Sheet</legend>
       <p class="help" style="margin:0">Keep your loads in a Google Sheet, one row per load. The site checks it every <span id="syncMin">5</span> minutes: <b>new row</b> → load posted, <b>edited row</b> → load updated, <b>deleted row</b> → load closed (its bids are kept). Every row needs a <b>Load #</b>. Share the sheet as "Anyone with the link → Viewer". Loads you add here in admin aren't touched.</p>
       <div id="syncStatus"></div>
@@ -297,7 +306,7 @@ function renderLoads() {
     return `<tr>
       <td><span class="status ${st}">${esc(stLabel)}</span></td>
       <td><div class="lane">${esc(place(l.origin_city, l.origin_state, l.origin_zip))} <span class="arrow">→</span> ${esc(place(l.dest_city, l.dest_state, l.dest_zip))}</div>
-        <div class="muted mono" style="font-size:12.5px">${l.ref ? '#' + esc(l.ref) + ' · ' : ''}${esc(l.public_id)}${l.source === 'sheet' ? ' <span class="chip" title="Managed by your Google Sheet">sheet</span>' : ''}${geoNote}</div></td>
+        <div class="muted mono" style="font-size:12.5px">${l.ref ? '#' + esc(l.ref) + ' · ' : ''}${esc(l.public_id)}${l.source === 'sheet' ? ' <span class="chip" title="Managed by your Google Sheet">sheet</span>' : l.source === 'smartsheet' ? ' <span class="chip" title="Managed by Smartsheet LOAD BOARD">smartsheet</span>' : ''}${l.customer ? ' · ' + esc(l.customer) : ''}${geoNote}</div></td>
       <td style="white-space:nowrap">${esc(fmtDate(l.pickup_date))}</td>
       <td>${esc(l.equipment || '')}</td>
       <td class="num">${l.miles ? Number(l.miles).toLocaleString() : '—'}</td>
@@ -355,7 +364,7 @@ function openLoad(l) {
   if (editing && editing.miles && !editing.miles_manual) f.elements.miles.placeholder = `${Math.round(editing.miles)} (calculated)`; else f.elements.miles.placeholder = '';
   if (v.status === 'awarded') { f.elements.status.value = 'closed'; }
   $('#loadMsg').innerHTML = v.status === 'awarded' ? '<div class="notice warn">This load is awarded. Use "Reopen" in the bids window to take bids again.</div>' : '';
-  if (editing && editing.source === 'sheet') $('#loadMsg').innerHTML += '<div class="notice warn" style="margin-top:8px">This load comes from your Google Sheet. Edits here will be overwritten at the next sync — change the sheet instead.</div>';
+  if (editing && (editing.source === 'sheet' || editing.source === 'smartsheet')) $('#loadMsg').innerHTML += '<div class="notice warn" style="margin-top:8px">This load comes from your ' + (editing.source === 'smartsheet' ? 'Smartsheet' : 'Google Sheet') + '. Edits here will be overwritten at the next sync — change the sheet instead.</div>';
   f.elements.status.disabled = v.status === 'awarded';
   $('#editOnly').hidden = !editing;
   $('#loadDlg').showModal();
@@ -445,7 +454,22 @@ function wire(l) {
 function fileToBase64(file) {
   return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1]); r.onerror = rej; r.readAsDataURL(file); });
 }
-$('#importBtn').onclick = async () => { $('#importMsg').innerHTML = ''; $('#importFile').value = ''; $('#importDlg').showModal(); renderSync(await api('/api/admin/loadsync')); };
+$('#importBtn').onclick = async () => { $('#importMsg').innerHTML = ''; $('#importFile').value = ''; $('#importDlg').showModal();
+  const [a, b] = await Promise.all([api('/api/admin/loadsync'), api('/api/admin/smartsheet')]); renderSync(a); renderSS(b); };
+function renderSS(st) {
+  $('#ssMin').textContent = st.minutes; $('#ssSheetId').value = st.sheetId || '';
+  const l = st.last; let html = '';
+  if (!st.tokenSet) html = '<div class="notice warn">Not connected: add <b>SMARTSHEET_TOKEN</b> in Render → your service → Environment, then redeploy.</div>';
+  else if (st.error) html = `<div class="notice err"><b>Last sync failed:</b> ${esc(st.error)}</div>`;
+  else if (l) {
+    html = `<div class="notice ok">Synced "${esc(l.sheet)}" ${esc(fmtDateTime(l.at))}: ${l.rows} row${l.rows === 1 ? '' : 's'} · ${l.created} new · ${l.updated} updated · ${l.closed} closed · ${st.liveLoads} live · ${l.written} row${l.written === 1 ? '' : 's'} written back.</div>`;
+    if (l.skipped && l.skipped.length) html += `<div class="notice warn" style="margin-top:8px">Needs attention: ${l.skipped.map(x => 'row ' + x.row + ' (' + esc(x.reason) + ')').join(', ')}</div>`;
+  } else html = '<div class="muted">Connected. Waiting for first sync…</div>';
+  if (st.tokenSet && !st.baseUrl) html += '<div class="notice warn" style="margin-top:8px">LOAD LINK fills in after you sign in to admin once on your live address (or set PUBLIC_URL in Render).</div>';
+  $('#ssStatus').innerHTML = html;
+}
+$('#ssRun').onclick = async () => { $('#ssStatus').innerHTML = '<div class="muted">Syncing with Smartsheet…</div>'; renderSS(await api('/api/admin/smartsheet/run', { method: 'POST' })); refreshLoads(); setTimeout(refreshLoads, 6000); };
+$('#ssSave').onclick = async () => { $('#ssStatus').innerHTML = '<div class="muted">Syncing with Smartsheet…</div>'; renderSS(await api('/api/admin/smartsheet', { method: 'PUT', body: { sheetId: $('#ssSheetId').value } })); refreshLoads(); };
 function renderSync(st) {
   $('#syncMin').textContent = st.minutes;
   $('#loadSheetUrl').value = st.url || '';

@@ -99,7 +99,7 @@ function cookie(req, value, maxAge) {
 // ---------- loads ----------
 const LOAD_FIELDS = ['ref', 'status', 'origin_city', 'origin_state', 'origin_zip', 'dest_city', 'dest_state', 'dest_zip',
   'pickup_date', 'pickup_window', 'delivery_date', 'delivery_window', 'equipment', 'temp', 'weight', 'pallets', 'commodity',
-  'stops', 'requirements', 'notes', 'target_rate', 'bid_deadline', 'contact_name', 'contact_phone', 'contact_email', 'miles'];
+  'stops', 'requirements', 'notes', 'target_rate', 'bid_deadline', 'contact_name', 'contact_phone', 'contact_email', 'miles', 'customer'];
 const PUBLIC_FIELDS = ['public_id', 'ref', 'status', 'origin_city', 'origin_state', 'origin_zip', 'dest_city', 'dest_state', 'dest_zip',
   'origin_lat', 'origin_lng', 'dest_lat', 'dest_lng', 'miles', 'pickup_date', 'pickup_window', 'delivery_date', 'delivery_window',
   'equipment', 'temp', 'weight', 'pallets', 'commodity', 'stops', 'requirements', 'notes', 'bid_deadline',
@@ -223,8 +223,8 @@ function mapImportRow(obj, keepEmpty = false) {
   return out;
 }
 
-const TEMPLATE_CSV = 'ref,origin_city,origin_state,origin_zip,dest_city,dest_state,dest_zip,pickup_date,pickup_window,delivery_date,delivery_window,equipment,temp,weight,pallets,commodity,stops,requirements,notes,target_rate,bid_deadline,status\n' +
-  'SO-10421,Salt Lake City,UT,84104,Dallas,TX,75212,2026-10-02,08:00-14:00,2026-10-05,FCFS 06:00-12:00,53\' Dry Van,,38500,22,Packaged candy,0,No double brokering; load locks required,,2200,2026-09-30 15:00,open\n';
+const TEMPLATE_CSV = "Load #,Pickup City,Pickup State,Pickup Zip,Delivery City,Delivery State,Delivery Zip,Pickup Date,Pickup Window,Delivery Date,Delivery Window,Equipment,Temp,Weight,Pallets,Commodity,Stops,Requirements,Notes,Target Rate,Bid Deadline,Miles,Status\n" +
+  "SO-10421,Salt Lake City,UT,84104,Dallas,TX,75212,10/2/2026,08:00-14:00,10/5/2026,FCFS 06:00-12:00,53' Dry Van,,38500,22,Packaged candy,0,Load locks required,,2200,9/30/2026 15:00,,open\n";
 
 function toCSV(rows) {
   if (!rows.length) return '';
@@ -325,6 +325,172 @@ function startLoadSync() {
   };
   setTimeout(tick, 8000);
   setInterval(tick, 60000).unref();
+}
+
+// ---------- Smartsheet load sync ----------
+// Reads the LOAD BOARD sheet: POST checked -> live, unchecked/deleted -> closed. Matched by LOAD #.
+// Writes back BOARD STATUS, BIDS, LOW BID, HWY PASS BIDS, AWARDED *, LOAD LINK, LAST SYNC.
+const SS_API = (process.env.SMARTSHEET_API || 'https://api.smartsheet.com/2.0').replace(/\/$/, '');
+const SS_MINUTES = Number(process.env.SMARTSHEET_SYNC_MINUTES || 3);
+const ssToken = () => process.env.SMARTSHEET_TOKEN || '';
+const ssSheetId = () => getSetting('ss_sheet_id') || process.env.SMARTSHEET_SHEET_ID || '7699725211094916';
+const SS_READ = {
+  'LOAD #': 'ref', 'CUSTOMER': 'customer', 'PICKUP CITY': 'origin_city', 'PICKUP ST': 'origin_state', 'PICKUP ZIP': 'origin_zip',
+  'DELIVERY CITY': 'dest_city', 'DELIVERY ST': 'dest_state', 'DELIVERY ZIP': 'dest_zip', 'PICKUP DATE': 'pickup_date',
+  'PICKUP WINDOW': 'pickup_window', 'DELIVERY DATE': 'delivery_date', 'DELIVERY WINDOW': 'delivery_window', 'EQUIPMENT': 'equipment',
+  'TEMP': 'temp', 'WEIGHT': 'weight', 'PALLETS': 'pallets', 'COMMODITY': 'commodity', 'STOPS': 'stops', 'REQUIREMENTS': 'requirements',
+  'NOTES': 'notes', 'TARGET RATE': 'target_rate', 'MILES': 'miles',
+};
+const SS_WRITE = ['BOARD STATUS', 'BIDS', 'LOW BID', 'HWY PASS BIDS', 'AWARDED CARRIER', 'AWARDED MC', 'AWARDED RATE', 'LOAD LINK', 'LAST SYNC'];
+
+async function ssFetch(pathname, opts = {}) {
+  const res = await fetch(SS_API + pathname, {
+    method: opts.method || 'GET',
+    headers: { Authorization: `Bearer ${ssToken()}`, 'Content-Type': 'application/json' },
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+    signal: AbortSignal.timeout(25000),
+  });
+  const text = await res.text();
+  let j = null; try { j = JSON.parse(text); } catch (_) { /* not json */ }
+  if (!res.ok) {
+    const msg = j && j.message ? j.message : `HTTP ${res.status}`;
+    if (res.status === 401) throw new Error('Smartsheet rejected the token. Check SMARTSHEET_TOKEN in Render (Environment).');
+    if (res.status === 404) throw new Error(`Smartsheet sheet ${ssSheetId()} not found, or the token's account can't open it.`);
+    throw new Error('Smartsheet: ' + msg);
+  }
+  return j;
+}
+
+function parseTime(t) {
+  const m = String(t || '').trim().match(/^(\d{1,2})(?::(\d{2}))?\s*([ap])?\.?m?\.?$/i);
+  if (!m) return null;
+  let h = Number(m[1]); const min = Number(m[2] || 0);
+  if (m[3]) { const pm = m[3].toLowerCase() === 'p'; if (h === 12) h = pm ? 12 : 0; else if (pm) h += 12; }
+  if (h > 23 || min > 59) return null;
+  return String(h).padStart(2, '0') + ':' + String(min).padStart(2, '0');
+}
+
+function boardStatus(L) {
+  if (!L) return 'CLOSED';
+  if (L.status === 'awarded') return 'AWARDED';
+  if (L.status === 'open') return biddingOpen(L) ? 'LIVE' : 'EXPIRED';
+  return 'CLOSED';
+}
+
+let ssSyncing = null, ssSoon = null;
+async function syncSmartsheet() {
+  if (!ssToken()) throw new Error('SMARTSHEET_TOKEN is not set in Render (Environment).');
+  if (ssSyncing) return ssSyncing;
+  ssSyncing = (async () => {
+    try {
+      const sheet = await ssFetch(`/sheets/${ssSheetId()}`);
+      const colByTitle = {}, titleById = {};
+      for (const c of sheet.columns) { colByTitle[c.title.trim().toUpperCase()] = c; titleById[c.id] = c.title.trim().toUpperCase(); }
+      if (!colByTitle['LOAD #'] || !colByTitle['POST']) throw new Error('The Smartsheet needs "LOAD #" and "POST" columns.');
+      const base = process.env.PUBLIC_URL ? process.env.PUBLIC_URL.replace(/\/$/, '') : getSetting('base_url', '');
+      const find = db.prepare(`SELECT * FROM loads WHERE source = 'smartsheet' AND ref = ?`);
+      const seen = new Set(), skipped = [], errors = new Map();
+      let created = 0, updated = 0, closed = 0;
+      const rowInfo = [];
+      sheet.rows.forEach((row, i) => {
+        const cell = {};
+        for (const c of row.cells || []) cell[titleById[c.columnId]] = c.value;
+        const ref = String(cell['LOAD #'] ?? '').trim();
+        const hasContent = Object.entries(cell).some(([k, v]) => !SS_WRITE.includes(k) && v != null && String(v).trim() !== '' && v !== false);
+        if (!ref) { if (hasContent) skipped.push({ row: i + 1, reason: 'no LOAD #' }); return; }
+        if (seen.has(ref)) { skipped.push({ row: i + 1, reason: `duplicate LOAD # ${ref}` }); errors.set(row.id, 'dup'); rowInfo.push({ row, cell, ref }); return; }
+        seen.add(ref);
+        rowInfo.push({ row, cell, ref });
+        const L = {};
+        for (const [title, field] of Object.entries(SS_READ)) if (title in colByTitle) L[field] = cell[title] ?? '';
+        L.ref = ref;
+        if (colByTitle['BID DUE DATE']) {
+          const d = cell['BID DUE DATE'];
+          L.bid_deadline = d ? `${String(d).slice(0, 10)} ${parseTime(cell['BID DUE TIME']) || '23:59'}` : '';
+        }
+        const post = cell['POST'] === true;
+        const existing = find.get(ref);
+        const complete = (L.origin_city || L.origin_zip) && (L.dest_city || L.dest_zip);
+        if (!complete) { if (post) { skipped.push({ row: i + 1, reason: `${ref}: missing pickup or delivery city/ZIP` }); errors.set(row.id, 'err'); } if (!existing) return; }
+        if (!existing) {
+          if (!post) return; // only create when POST is checked
+          const id = insertLoad({ ...L, status: 'open' });
+          db.prepare(`UPDATE loads SET source = 'smartsheet', ss_row_id = ? WHERE id = ?`).run(String(row.id), id);
+          created++; return;
+        }
+        const patch = complete ? cleanLoad(L) : {};
+        if (existing.status !== 'awarded') {
+          const want = post && complete ? 'open' : 'closed';
+          if (want !== existing.status) patch.status = want;
+        }
+        if (!patch.miles && !existing.miles_manual) delete patch.miles;
+        const changed = Object.keys(patch).filter(k => String(patch[k] ?? '') !== String(existing[k] ?? ''));
+        if (changed.length) {
+          updateLoad(existing.id, Object.fromEntries(changed.map(k => [k, patch[k]])));
+          if (patch.status === 'closed') closed++; else updated++;
+        }
+        if (existing.ss_row_id !== String(row.id)) db.prepare('UPDATE loads SET ss_row_id = ? WHERE id = ?').run(String(row.id), existing.id);
+      });
+      // rows deleted from the sheet -> close
+      for (const L of db.prepare(`SELECT id, ref FROM loads WHERE source = 'smartsheet' AND status IN ('open','draft')`).all()) {
+        if (!seen.has(L.ref)) { db.prepare(`UPDATE loads SET status = 'closed', updated_at = datetime('now') WHERE id = ?`).run(L.id); closed++; }
+      }
+      // write results back to the sheet (only cells that changed)
+      const stamp = new Date().toLocaleString('en-US', { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: TIMEZONE });
+      const updates = [];
+      for (const { row, cell, ref } of rowInfo) {
+        const L = find.get(ref);
+        const vals = {};
+        if (errors.get(row.id) === 'dup') vals['BOARD STATUS'] = 'ERROR';
+        else if (errors.get(row.id) === 'err' && !L) vals['BOARD STATUS'] = 'ERROR';
+        else if (!L) { if (cell['BOARD STATUS'] || cell['LOAD LINK']) Object.assign(vals, { 'BOARD STATUS': '', 'LOAD LINK': '' }); else continue; }
+        else {
+          const st = bidStats.get(L.id), hp = passStats.get(L.id);
+          const win = L.awarded_bid_id ? db.prepare('SELECT * FROM bids WHERE id = ?').get(L.awarded_bid_id) : null;
+          Object.assign(vals, {
+            'BOARD STATUS': errors.get(row.id) === 'err' ? 'ERROR' : boardStatus(L),
+            'BIDS': st.bid_count || 0, 'LOW BID': st.low_bid ?? '', 'HWY PASS BIDS': hp.pass_count || 0,
+            'AWARDED CARRIER': win ? win.company : '', 'AWARDED MC': win ? win.mc : '', 'AWARDED RATE': win ? win.amount : '',
+            'LOAD LINK': base ? `${base}/load/${L.public_id}` : '',
+          });
+        }
+        const cells = [];
+        for (const [title, v] of Object.entries(vals)) {
+          const col = colByTitle[title]; if (!col) continue;
+          if (String(cell[title] ?? '') !== String(v ?? '')) cells.push({ columnId: col.id, value: v === '' ? '' : v });
+        }
+        if (cells.length && colByTitle['LAST SYNC']) cells.push({ columnId: colByTitle['LAST SYNC'].id, value: stamp });
+        if (cells.length) updates.push({ id: row.id, cells });
+      }
+      for (let i = 0; i < updates.length; i += 200) await ssFetch(`/sheets/${ssSheetId()}/rows`, { method: 'PUT', body: updates.slice(i, i + 200) });
+      const result = { created, updated, closed, rows: seen.size, written: updates.length, skipped, sheet: sheet.name, at: new Date().toISOString() };
+      setSetting('ss_sync_last', JSON.stringify(result));
+      setSetting('ss_sync_error', '');
+      return result;
+    } catch (e) {
+      setSetting('ss_sync_error', e.message);
+      throw e;
+    } finally { ssSyncing = null; }
+  })();
+  return ssSyncing;
+}
+// push bid / award changes to Smartsheet shortly after they happen
+function smartsheetSoon() {
+  if (!ssToken()) return;
+  clearTimeout(ssSoon);
+  ssSoon = setTimeout(() => syncSmartsheet().catch(e => console.warn('[smartsheet]', e.message)), 4000);
+}
+function smartsheetStatus() {
+  let last = null; try { last = JSON.parse(getSetting('ss_sync_last') || 'null'); } catch (_) { /* ignore */ }
+  return { tokenSet: !!ssToken(), sheetId: ssSheetId(), last, error: getSetting('ss_sync_error', ''), minutes: SS_MINUTES,
+    baseUrl: process.env.PUBLIC_URL || getSetting('base_url', ''),
+    liveLoads: db.prepare(`SELECT COUNT(*) AS n FROM loads WHERE source = 'smartsheet' AND status = 'open'`).get().n };
+}
+function startSmartsheetSync() {
+  if (!ssToken()) return;
+  const tick = () => syncSmartsheet().catch(e => console.warn('[smartsheet] sync failed:', e.message));
+  setTimeout(tick, 5000);
+  setInterval(tick, SS_MINUTES * 60000).unref();
 }
 
 // ---------- carrier email list ----------
@@ -452,6 +618,7 @@ async function handle(req, res) {
         phone=excluded.phone, amount=excluded.amount, notes=excluded.notes, ip=excluded.ip, updated_at=datetime('now')`)
       .run(L.id, mc, company, contact, email, phone, amount, s(b.notes).slice(0, 1000), ip);
     const st = bidStats.get(L.id);
+    smartsheetSoon();
     return send(res, 200, { ok: true, amount, low_bid: st.low_bid, bid_count: st.bid_count, you_are_low: amount <= st.low_bid });
   }
 
@@ -471,7 +638,12 @@ async function handle(req, res) {
     // CSRF guard: state-changing admin calls must come from our own pages
     if (m !== 'GET' && req.headers['x-requested-with'] !== 'loadboard') return fail(res, 403, 'Bad request origin.');
 
-    if (m === 'GET' && p === '/api/admin/me') return send(res, 200, { ok: true });
+    if (m === 'GET' && p === '/api/admin/me') { const b = baseUrl(req); if (getSetting('base_url') !== b) setSetting('base_url', b); return send(res, 200, { ok: true }); }
+    // any admin change may affect what Smartsheet should show
+    if (m !== 'GET' && !p.startsWith('/api/admin/smartsheet')) smartsheetSoon();
+    if (m === 'GET' && p === '/api/admin/smartsheet') return send(res, 200, smartsheetStatus());
+    if (m === 'POST' && p === '/api/admin/smartsheet/run') { try { await syncSmartsheet(); } catch (_) { /* saved in status */ } return send(res, 200, smartsheetStatus()); }
+    if (m === 'PUT' && p === '/api/admin/smartsheet') { const { sheetId } = await readBody(req, 2000); setSetting('ss_sheet_id', String(sheetId || '').replace(/\D/g, '')); try { await syncSmartsheet(); } catch (_) { /* saved */ } return send(res, 200, smartsheetStatus()); }
 
     if (m === 'GET' && p === '/api/admin/loads') {
       const rows = db.prepare('SELECT * FROM loads ORDER BY CASE status WHEN \'open\' THEN 0 WHEN \'draft\' THEN 1 WHEN \'closed\' THEN 2 ELSE 3 END, pickup_date IS NULL, pickup_date DESC, id DESC').all();
@@ -618,5 +790,6 @@ server.listen(PORT, () => {
   console.log(`Load board running on http://localhost:${PORT}  (admin: /admin)`);
   qualify.startAutoRefresh();
   startLoadSync();
+  startSmartsheetSync();
   geo.resumePending();
 });

@@ -19,7 +19,8 @@ There are no third-party packages. It needs only Node.js 22.13 or newer and uses
 ## What you can do in admin
 
 - **+ New load**: enter the lane, dates and windows, the bid deadline, equipment and freight details, requirements and notes. You can also add a **private target rate** that carriers never see, and contact info. Miles and the map fill in automatically from the city, state and ZIP.
-- **Google Sheet / Import → Keep loads in sync with a Google Sheet**: paste a sheet link (shared "Anyone with the link → Viewer"). Every few minutes the site reads it: a new row posts a load, an edited row updates it, a deleted row closes it (bids are kept). Every row needs a **Load #**; column names match the template. Loads added by hand in admin aren't touched. Put an optional `status` column (open / draft / closed) to control a row without deleting it.
+- **Sync / Import → Smartsheet (LOAD BOARD sheet)**: check **POST** on a row to put it live; uncheck it or delete the row to close it (bids kept). The site re-reads the sheet every 3 minutes and writes **BOARD STATUS, BIDS, LOW BID, HWY PASS BIDS, AWARDED CARRIER / MC / RATE, LOAD LINK, LAST SYNC** back to the row, within seconds of a new bid or award. Needs `SMARTSHEET_TOKEN` in Render. Awarded loads stay awarded even if POST is unchecked.
+- **Sync / Import → Google Sheet**: paste a sheet link (shared "Anyone with the link → Viewer"). Every few minutes the site reads it: a new row posts a load, an edited row updates it, a deleted row closes it (bids are kept). Every row needs a **Load #**; column names match the template. Loads added by hand in admin aren't touched. Put an optional `status` column (open / draft / closed) to control a row without deleting it.
 - **Import loads (one time)**: upload a CSV or XLSX with many loads at once. Click **Download template** in that window for the column names. Common names also work, such as "Pickup City" or "Ship Date".
 - **Bids**: bids are listed low to high, each marked **✓ Pass** or **✗ Not on list** for Highway, with $/mi and each bid's difference from your target. **Award** marks the load as covered and closes bidding. **Reopen for bids** undoes that.
 - **Link**: copies the carrier link for a load. **Copy board link** copies the link to the whole board.
@@ -79,6 +80,9 @@ Any host that runs Node and has a **persistent disk** will work. Your loads and 
 | `GEOCODER_USER_AGENT` | no | Identifies your site to the free map lookup. Include your email, e.g. `BrockLoads/1.0 (codyp@sweetcandy.com)`. |
 | `LOAD_SYNC_MINUTES` | no | How often the load sheet is re-read. Defaults to 5. |
 | `TIMEZONE` | no | Time zone for bid deadlines typed in sheets/imports. Defaults to `America/Denver`. |
+| `SMARTSHEET_TOKEN` | for Smartsheet | Smartsheet API token (Account → Apps & Integrations → API Access). |
+| `SMARTSHEET_SHEET_ID` | no | Defaults to the LOAD BOARD sheet (7699725211094916); can also be changed in admin. |
+| `SMARTSHEET_SYNC_MINUTES` | no | How often Smartsheet is read. Defaults to 3. |
 | `PUBLIC_URL` | no | The address used in daily-email links, e.g. `https://loads.yourdomain.com`. Defaults to the address you're using. |
 | `COOKIE_SECURE` | no | Set to `1` to force secure cookies. This happens automatically behind HTTPS on most hosts. |
 
