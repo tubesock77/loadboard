@@ -91,7 +91,15 @@ function drawMap(l) {
     return;
   }
   const map = L.map(el, { scrollWheelZoom: false });
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, attribution: '&copy; OpenStreetMap contributors' }).addTo(map);
+  // OpenStreetMap tiles, with an automatic switch to CARTO tiles if OSM refuses them
+  let tileErrors = 0, switched = false;
+  const osm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, attribution: '&copy; OpenStreetMap contributors' }).addTo(map);
+  osm.on('tileerror', () => {
+    if (switched || ++tileErrors < 3) return;
+    switched = true; map.removeLayer(osm);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { maxZoom: 18, subdomains: 'abcd',
+      attribution: '&copy; OpenStreetMap contributors &copy; CARTO' }).addTo(map);
+  });
   const sign = getComputedStyle(document.documentElement).getPropertyValue('--sign').trim() || '#1D4F9E';
   const pin = (label) => L.divIcon({ className: '', iconSize: [30, 30], iconAnchor: [15, 15],
     html: `<div style="width:30px;height:30px;border-radius:50%;background:${sign};color:#fff;border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);display:grid;place-items:center;font:700 14px Barlow,sans-serif">${label}</div>` });

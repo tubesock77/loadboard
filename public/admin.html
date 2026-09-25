@@ -301,7 +301,7 @@ function renderLoads() {
     const tl = timeLeft(l.bid_deadline);
     const st = l.status === 'open' && !l.bidding_open ? 'closed' : l.status;
     const stLabel = l.status === 'open' && !l.bidding_open ? 'Expired' : l.status;
-    const geoNote = l.geo_status === 'failed' ? ' <span class="chip bad" title="Address not found — check city/state/ZIP">no map</span>' : l.geo_status === 'pending' ? ' <span class="chip">mapping…</span>' : '';
+    const geoNote = l.geo_status === 'failed' ? ' <span class="chip bad" title="' + esc(l.geo_error || 'Address not found — check city/state/ZIP') + '">no map</span>' : l.geo_status === 'pending' ? ' <span class="chip">mapping…</span>' : '';
     const overTarget = l.target_rate && l.low_bid && l.low_bid > l.target_rate;
     return `<tr>
       <td><span class="status ${st}">${esc(stLabel)}</span></td>
@@ -364,6 +364,7 @@ function openLoad(l) {
   if (editing && editing.miles && !editing.miles_manual) f.elements.miles.placeholder = `${Math.round(editing.miles)} (calculated)`; else f.elements.miles.placeholder = '';
   if (v.status === 'awarded') { f.elements.status.value = 'closed'; }
   $('#loadMsg').innerHTML = v.status === 'awarded' ? '<div class="notice warn">This load is awarded. Use "Reopen" in the bids window to take bids again.</div>' : '';
+  if (editing && editing.geo_status === 'failed') $('#loadMsg').innerHTML += `<div class="notice err" style="margin-top:8px"><b>Map/miles problem:</b> ${esc(editing.geo_error || 'address not found')}. Check the city, state and ZIP, then save to retry.</div>`;
   if (editing && (editing.source === 'sheet' || editing.source === 'smartsheet')) $('#loadMsg').innerHTML += '<div class="notice warn" style="margin-top:8px">This load comes from your ' + (editing.source === 'smartsheet' ? 'Smartsheet' : 'Google Sheet') + '. Edits here will be overwritten at the next sync — change the sheet instead.</div>';
   f.elements.status.disabled = v.status === 'awarded';
   $('#editOnly').hidden = !editing;
