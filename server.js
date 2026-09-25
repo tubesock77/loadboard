@@ -1,5 +1,6 @@
 // Freight Load Board — carriers view loads and bid; admin posts loads and awards.
 // Zero third-party dependencies. Requires Node.js 22.13 or newer.
+process.env.TZ = 'UTC'; // parse times without a zone as UTC, then shift to TIMEZONE below
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -15,6 +16,20 @@ const SESSION_SECRET = process.env.SESSION_SECRET || getSetting('session_secret'
   const s = crypto.randomBytes(32).toString('hex'); setSetting('session_secret', s); return s;
 })();
 const PUBLIC_DIR = path.join(__dirname, 'public');
+const TIMEZONE = process.env.TIMEZONE || 'America/Denver';
+const LOAD_SYNC_MINUTES = Number(process.env.LOAD_SYNC_MINUTES || 5);
+
+// "2026-09-30 15:00" typed in a sheet means 3 PM in your time zone, not UTC.
+function localToIso(str) {
+  const s = String(str).trim();
+  if (/(Z|[+-]\d{2}:?\d{2})$/i.test(s)) { const t = Date.parse(s); return isNaN(t) ? null : new Date(t).toISOString(); }
+  const naive = Date.parse(s.replace(/^(\d{4}-\d{2}-\d{2})[ T]/, '$1T'));
+  if (isNaN(naive)) return null;
+  const offset = at => Date.parse(new Date(at).toLocaleString('en-US', { timeZone: TIMEZONE, hour12: false }).replace(', 24:', ', 00:') + ' UTC') - at;
+  let t = naive - offset(naive);
+  t = naive - offset(t);
+  return new Date(t).toISOString();
+}
 
 if (!ADMIN_PASSWORD) console.warn('\n  !! ADMIN_PASSWORD is not set. Admin login is disabled until you set it.\n');
 
@@ -102,7 +117,7 @@ function cleanLoad(input) {
     if (['target_rate', 'miles'].includes(f) && v != null) v = Number(String(v).replace(/[^0-9.]/g, '')) || null;
     if (['origin_state', 'dest_state'].includes(f) && v) v = String(v).toUpperCase().slice(0, 3);
     if (f === 'status' && !STATUSES.includes(v)) v = 'open';
-    if (f === 'bid_deadline' && v) { const t = Date.parse(v); v = isNaN(t) ? null : new Date(t).toISOString(); }
+    if (f === 'bid_deadline' && v) v = localToIso(v);
     if (typeof v === 'string') v = v.slice(0, 2000);
     out[f] = v;
   }
@@ -194,15 +209,16 @@ function excelDate(v) {
   if (/^\d{5}(\.\d+)?$/.test(v)) { const d = new Date(Date.UTC(1899, 11, 30) + Number(v) * 86400000); return d.toISOString().slice(0, 10); }
   const t = Date.parse(v); return isNaN(t) ? v : new Date(t).toISOString().slice(0, 10);
 }
-function mapImportRow(obj) {
+function mapImportRow(obj, keepEmpty = false) {
   const out = {};
   for (const [field, names] of Object.entries(IMPORT_ALIASES)) {
     const k = names.find(n => obj[n] != null && obj[n] !== '');
     if (k) out[field] = obj[k];
+    else if (keepEmpty && names.some(n => n in obj)) out[field] = ''; // column exists but cell is blank -> clear it
   }
   if (out.pickup_date) out.pickup_date = excelDate(out.pickup_date);
   if (out.delivery_date) out.delivery_date = excelDate(out.delivery_date);
-  if (out.bid_deadline && /^\d{5}(\.\d+)?$/.test(out.bid_deadline)) out.bid_deadline = new Date(Date.UTC(1899, 11, 30) + Number(out.bid_deadline) * 86400000).toISOString();
+  if (out.bid_deadline && /^\d{5}(\.\d+)?$/.test(out.bid_deadline)) out.bid_deadline = localToIso(new Date(Date.UTC(1899, 11, 30) + Number(out.bid_deadline) * 86400000).toISOString().slice(0, 16).replace('T', ' '));
   if (out.status) out.status = String(out.status).toLowerCase();
   return out;
 }
@@ -225,6 +241,162 @@ function publicConfig() {
     contact_email: getSetting('default_contact_email', ''),
     bid_terms: getSetting('bid_terms', 'Bids are all-in USD (linehaul + fuel). Submitting a bid does not guarantee award; we will contact the awarded carrier directly.'),
   };
+}
+
+
+
+// ---------- Google Sheet load sync ----------
+// The sheet is the source of truth for loads that came from it (matched by Load #).
+// New row -> new load. Changed row -> load updated. Row deleted -> load closed (bids kept).
+let syncing = null;
+async function syncLoadsFromSheet() {
+  const url = getSetting('load_sheet_url');
+  if (!url) throw new Error('No load sheet link saved yet.');
+  if (syncing) return syncing;
+  syncing = (async () => {
+    try {
+      const res = await fetch(qualify.toDownloadUrl(url), { redirect: 'follow', signal: AbortSignal.timeout(20000) });
+      if (!res.ok) throw new Error(`The load sheet link returned HTTP ${res.status}. Make sure it's shared as "Anyone with the link can view".`);
+      const rows = rowsToObjects(parseAny(Buffer.from(await res.arrayBuffer())));
+      if (rows.length && !Object.keys(rows[0]).some(k => IMPORT_ALIASES.ref.includes(k)))
+        throw new Error('The load sheet needs a "Load #" column (header: ref, Load Number, Order, PO or BOL) so each row can be matched to a load.');
+      const seen = new Set(), skipped = [];
+      let created = 0, updated = 0, closed = 0;
+      const find = db.prepare(`SELECT * FROM loads WHERE source = 'sheet' AND ref = ?`);
+      rows.forEach((r, i) => {
+        const L = mapImportRow(r, true);
+        const ref = String(L.ref || '').trim();
+        const hasContent = Object.values(r).some(v => String(v).trim() !== '');
+        if (!ref) { if (hasContent) skipped.push({ row: i + 2, reason: 'no Load #' }); return; }
+        if (seen.has(ref)) { skipped.push({ row: i + 2, reason: `duplicate Load # ${ref}` }); return; }
+        if (!(L.origin_city || L.origin_zip) || !(L.dest_city || L.dest_zip)) { skipped.push({ row: i + 2, reason: 'missing origin or destination' }); return; }
+        seen.add(ref);
+        const sheetStatus = ['open', 'draft', 'closed'].includes(L.status) ? L.status : null;
+        const existing = find.get(ref);
+        if (!existing) {
+          const id = insertLoad({ ...L, status: sheetStatus || 'open' });
+          db.prepare(`UPDATE loads SET source = 'sheet' WHERE id = ?`).run(id);
+          created++; return;
+        }
+        const patch = cleanLoad(L);
+        delete patch.status;
+        if (existing.status !== 'awarded') {
+          if (sheetStatus && sheetStatus !== existing.status) patch.status = sheetStatus;
+          else if (!sheetStatus && existing.status === 'closed' && existing.sync_closed) patch.status = 'open'; // row came back
+        }
+        if (!patch.miles && !existing.miles_manual) delete patch.miles; // keep calculated miles
+        const changed = Object.keys(patch).filter(k => String(patch[k] ?? '') !== String(existing[k] ?? ''));
+        if (changed.length || existing.sync_closed) {
+          const diff = Object.fromEntries(changed.map(k => [k, patch[k]]));
+          if (changed.length) updateLoad(existing.id, diff);
+          db.prepare('UPDATE loads SET sync_closed = 0 WHERE id = ?').run(existing.id);
+          if (changed.length) updated++;
+        }
+      });
+      // rows removed from the sheet -> close those loads (never delete; bids are kept)
+      for (const L of db.prepare(`SELECT id, ref FROM loads WHERE source = 'sheet' AND status IN ('open','draft')`).all()) {
+        if (!seen.has(L.ref)) {
+          db.prepare(`UPDATE loads SET status = 'closed', sync_closed = 1, updated_at = datetime('now') WHERE id = ?`).run(L.id);
+          closed++;
+        }
+      }
+      const result = { created, updated, closed, rows: seen.size, skipped, at: new Date().toISOString() };
+      setSetting('load_sync_last', JSON.stringify(result));
+      setSetting('load_sync_error', '');
+      return result;
+    } catch (e) {
+      setSetting('load_sync_error', e.message);
+      throw e;
+    } finally { syncing = null; }
+  })();
+  return syncing;
+}
+function loadSyncStatus() {
+  let last = null; try { last = JSON.parse(getSetting('load_sync_last') || 'null'); } catch (_) { /* ignore */ }
+  return { url: getSetting('load_sheet_url', ''), last, error: getSetting('load_sync_error', ''), minutes: LOAD_SYNC_MINUTES,
+    sheetLoads: db.prepare(`SELECT COUNT(*) AS n FROM loads WHERE source = 'sheet' AND status = 'open'`).get().n };
+}
+function startLoadSync() {
+  const tick = () => {
+    if (!getSetting('load_sheet_url')) return;
+    let last = null; try { last = JSON.parse(getSetting('load_sync_last') || 'null'); } catch (_) { /* ignore */ }
+    const age = last ? (Date.now() - Date.parse(last.at)) / 60000 : Infinity;
+    if (age >= LOAD_SYNC_MINUTES || getSetting('load_sync_error')) syncLoadsFromSheet().catch(e => console.warn('[loads] sync failed:', e.message));
+  };
+  setTimeout(tick, 8000);
+  setInterval(tick, 60000).unref();
+}
+
+// ---------- carrier email list ----------
+const EMAIL_RE = /[^\s@,;<>]+@[^\s@,;<>]+\.[a-z]{2,}/gi;
+function carrierContacts() {
+  const byEmail = new Map();
+  const add = (email, row) => {
+    const e = email.toLowerCase();
+    const cur = byEmail.get(e);
+    if (!cur) byEmail.set(e, { email: e, ...row, sources: [row.source] });
+    else {
+      if (!cur.sources.includes(row.source)) cur.sources.push(row.source);
+      for (const k of ['mc', 'company', 'contact_name', 'phone', 'last_bid']) if (!cur[k] && row[k]) cur[k] = row[k];
+      cur.bid_count = (cur.bid_count || 0) + (row.bid_count || 0);
+    }
+  };
+  // carriers who have bid (most recent details per MC + email)
+  db.prepare(`SELECT b.mc, b.email, b.company, b.contact_name, b.phone, COUNT(*) AS bid_count, MAX(b.updated_at) AS last_bid
+    FROM bids b WHERE b.email != '' GROUP BY b.mc, lower(b.email) ORDER BY last_bid DESC`).all()
+    .forEach(r => (r.email.match(EMAIL_RE) || []).forEach(e => add(e, { ...r, source: 'bid' })));
+  // emails from the Highway sheet (if it has an email column)
+  db.prepare(`SELECT mc, name, email FROM qualified_carriers WHERE email IS NOT NULL AND email != ''`).all()
+    .forEach(r => (r.email.match(EMAIL_RE) || []).forEach(e => add(e, { mc: r.mc, company: r.name, source: 'highway sheet', bid_count: 0 })));
+  const pass = new Set(db.prepare('SELECT mc FROM qualified_carriers').all().map(r => r.mc));
+  const out = new Set(db.prepare('SELECT email FROM email_optout').all().map(r => r.email));
+  return [...byEmail.values()].map(c => ({ ...c, highway_pass: pass.has(c.mc), opted_out: out.has(c.email) }))
+    .sort((a, b) => (b.highway_pass - a.highway_pass) || String(b.last_bid || '').localeCompare(String(a.last_bid || '')) || a.email.localeCompare(b.email));
+}
+
+function baseUrl(req) {
+  const proto = (req.headers['x-forwarded-proto'] || 'http').split(',')[0].trim();
+  return process.env.PUBLIC_URL ? process.env.PUBLIC_URL.replace(/\/$/, '') : `${proto}://${req.headers.host}`;
+}
+
+function buildDigest(base) {
+  const cfg = publicConfig();
+  const loads = db.prepare(`SELECT * FROM loads WHERE status = 'open' ORDER BY pickup_date IS NULL, pickup_date, id`).all().filter(biddingOpen);
+  const h = v => (v == null ? '' : String(v).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])));
+  const tz = process.env.TIMEZONE || 'America/Denver';
+  const day = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', timeZone: tz });
+  const fmtD = d => { if (!d) return 'TBD'; const t = new Date(d + 'T12:00:00Z'); return isNaN(t) ? d : t.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' }); };
+  const fmtDue = d => d ? new Date(d).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: tz }) : '';
+  const place = (c, s, z) => [c, s].filter(Boolean).join(', ') || z || '';
+  const subject = `${cfg.company} · ${loads.length} load${loads.length === 1 ? '' : 's'} available · ${day}`;
+  const contact = [cfg.contact_phone, cfg.contact_email].filter(Boolean).join(' · ');
+  const rows = loads.map(l => {
+    const url = `${base}/load/${l.public_id}`;
+    const eq = [l.equipment, l.temp].filter(Boolean).join(' · ');
+    const det = [eq, l.weight ? Number(l.weight).toLocaleString() + ' lb' : '', l.miles ? Math.round(l.miles).toLocaleString() + ' mi' : ''].filter(Boolean).join(' · ');
+    return {
+      text: `${place(l.origin_city, l.origin_state, l.origin_zip)} → ${place(l.dest_city, l.dest_state, l.dest_zip)}\n  Pick up ${fmtD(l.pickup_date)}${l.pickup_window ? ' ' + l.pickup_window : ''} · Deliver ${fmtD(l.delivery_date)}\n  ${det}${l.bid_deadline ? `\n  Bids due ${fmtDue(l.bid_deadline)}` : ''}\n  View & bid: ${url}`,
+      html: `<tr>
+        <td style="padding:12px 10px;border-bottom:1px solid #D6DCE6;vertical-align:top">
+          <div style="font:700 16px Arial,sans-serif;color:#141B27;text-transform:uppercase">${h(place(l.origin_city, l.origin_state, l.origin_zip))} &rarr; ${h(place(l.dest_city, l.dest_state, l.dest_zip))}</div>
+          <div style="font:14px Arial,sans-serif;color:#586478;margin-top:4px">${h(det)}${l.ref ? ' · #' + h(l.ref) : ''}</div></td>
+        <td style="padding:12px 10px;border-bottom:1px solid #D6DCE6;vertical-align:top;font:14px Arial,sans-serif;color:#141B27;white-space:nowrap">PU ${h(fmtD(l.pickup_date))}<br>DEL ${h(fmtD(l.delivery_date))}${l.bid_deadline ? `<br><span style="color:#B7780A">Due ${h(fmtDue(l.bid_deadline))}</span>` : ''}</td>
+        <td style="padding:12px 10px;border-bottom:1px solid #D6DCE6;vertical-align:top;text-align:right">
+          <a href="${h(url)}" style="display:inline-block;background:#1D4F9E;color:#ffffff;font:700 14px Arial,sans-serif;text-decoration:none;padding:8px 14px;border-radius:6px">View &amp; bid</a></td></tr>`,
+    };
+  });
+  const text = `${cfg.company}\nAvailable loads — ${day}\n\n` + (rows.length ? rows.map(r => r.text).join('\n\n') : 'No open loads right now.') +
+    `\n\nAll loads: ${base}/\n${contact ? 'Questions: ' + contact + '\n' : ''}Reply "remove" to stop getting this list.`;
+  const html = `<div style="max-width:680px;font-family:Arial,sans-serif;color:#141B27">
+    <div style="background:#1D4F9E;color:#ffffff;padding:16px 18px;border-radius:8px 8px 0 0">
+      <div style="font:700 20px Arial,sans-serif;text-transform:uppercase;letter-spacing:.5px">${h(cfg.company)}</div>
+      <div style="font:14px Arial,sans-serif;opacity:.9;margin-top:2px">Available loads — ${h(day)}</div></div>
+    <table role="presentation" cellspacing="0" cellpadding="0" style="width:100%;border:1px solid #D6DCE6;border-top:0;border-collapse:collapse">
+      ${rows.length ? rows.map(r => r.html).join('') : '<tr><td style="padding:16px;font:14px Arial,sans-serif">No open loads right now.</td></tr>'}
+    </table>
+    <p style="font:14px Arial,sans-serif;margin:14px 0 4px"><a href="${h(base)}/" style="color:#1D4F9E;font-weight:700">See all available loads</a></p>
+    <p style="font:12px Arial,sans-serif;color:#586478;margin:4px 0">${contact ? 'Questions: ' + h(contact) + '<br>' : ''}Reply "remove" to stop getting this list.</p></div>`;
+  return { subject, text, html, count: loads.length };
 }
 
 // ---------- router ----------
@@ -367,6 +539,32 @@ async function handle(req, res) {
       return send(res, 200, { created: created.length, skipped, filename });
     }
 
+    // ---- Google Sheet load sync ----
+    if (m === 'GET' && p === '/api/admin/loadsync') return send(res, 200, loadSyncStatus());
+    if (m === 'PUT' && p === '/api/admin/loadsync') {
+      const { url } = await readBody(req, 10000);
+      setSetting('load_sheet_url', String(url || '').trim());
+      if (!url) { setSetting('load_sync_error', ''); return send(res, 200, loadSyncStatus()); }
+      try { await syncLoadsFromSheet(); } catch (_) { /* error saved in status */ }
+      return send(res, 200, loadSyncStatus());
+    }
+    if (m === 'POST' && p === '/api/admin/loadsync/run') {
+      try { await syncLoadsFromSheet(); } catch (_) { /* error saved in status */ }
+      return send(res, 200, loadSyncStatus());
+    }
+
+    // ---- carrier email list + daily load email ----
+    if (m === 'GET' && p === '/api/admin/contacts') return send(res, 200, carrierContacts());
+    if (m === 'POST' && p === '/api/admin/contacts/optout') {
+      const { email, out } = await readBody(req, 5000);
+      const e = String(email || '').trim().toLowerCase();
+      if (!e) return fail(res, 400, 'Missing email');
+      if (out) db.prepare('INSERT OR IGNORE INTO email_optout (email) VALUES (?)').run(e);
+      else db.prepare('DELETE FROM email_optout WHERE email = ?').run(e);
+      return send(res, 200, { ok: true });
+    }
+    if (m === 'GET' && p === '/api/admin/digest') return send(res, 200, buildDigest(baseUrl(req)));
+
     // carriers / settings
     if (m === 'GET' && p === '/api/admin/carriers') return send(res, 200, qualify.status());
     if (m === 'PUT' && p === '/api/admin/carriers') {
@@ -419,5 +617,6 @@ process.on('uncaughtException', e => console.error('[uncaught]', e));
 server.listen(PORT, () => {
   console.log(`Load board running on http://localhost:${PORT}  (admin: /admin)`);
   qualify.startAutoRefresh();
+  startLoadSync();
   geo.resumePending();
 });

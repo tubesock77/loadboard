@@ -32,6 +32,7 @@
   <div id="app" hidden>
     <div class="tabs" role="tablist">
       <button type="button" class="on" data-tab="loads">Loads</button>
+      <button type="button" data-tab="email">Daily email</button>
       <button type="button" data-tab="carriers">Approved carriers</button>
       <button type="button" data-tab="settings">Settings</button>
     </div>
@@ -41,7 +42,7 @@
       <div class="toolbar">
         <div class="left">
           <button class="btn primary" type="button" id="newLoad">+ New load</button>
-          <button class="btn" type="button" id="importBtn">Import loads</button>
+          <button class="btn" type="button" id="importBtn">Google Sheet / Import</button>
           <button class="btn" type="button" id="boardLink">Copy board link</button>
           <a class="btn" href="/api/admin/bids.csv">Export all bids</a>
         </div>
@@ -55,6 +56,35 @@
       </div>
       <div class="stat-row" id="stats"></div>
       <div class="panel table-wrap"><table class="data" id="loadTable"></table></div>
+    </section>
+
+    <!-- DAILY EMAIL -->
+    <section data-pane="email" hidden>
+      <div class="stack">
+        <div class="panel card">
+          <div class="toolbar" style="margin-bottom:6px">
+            <div><h3 style="margin:0">Today's load list</h3><div class="help" id="digestInfo"></div></div>
+            <div class="right">
+              <button class="btn primary" type="button" id="copyDigest">Copy email</button>
+              <button class="btn" type="button" id="copySubject">Copy subject</button>
+              <button class="btn" type="button" id="copyText">Copy as plain text</button>
+            </div>
+          </div>
+          <p class="help" style="margin:0 0 12px">Every open load with its "View &amp; bid" link, built fresh each time you open this tab. Click <b>Copy email</b>, paste into a new Outlook or Gmail message, then paste the addresses below into <b>BCC</b>.</p>
+          <div id="digestPreview" style="border:1px dashed var(--line);border-radius:8px;padding:14px;background:#ffffff;overflow-x:auto"></div>
+        </div>
+        <div class="panel card">
+          <div class="toolbar" style="margin-bottom:6px">
+            <div><h3 style="margin:0">Carrier email list</h3><div class="help" id="contactInfo"></div></div>
+            <div class="right">
+              <label style="display:flex;gap:6px;align-items:center;margin:0;font-weight:600"><input type="checkbox" id="onlyPass" checked style="width:auto"> Only Highway pass</label>
+              <button class="btn primary" type="button" id="copyEmails">Copy addresses for BCC</button>
+            </div>
+          </div>
+          <p class="help" style="margin:0 0 12px">Built automatically from carriers who bid (their email on the bid form) plus any email column in your Highway sheet. Click <b>Remove</b> when someone asks to stop getting the list.</p>
+          <div class="panel table-wrap"><table class="data" id="contactTable"></table></div>
+        </div>
+      </div>
     </section>
 
     <!-- CARRIERS -->
@@ -188,12 +218,20 @@
 
 <!-- import -->
 <dialog id="importDlg">
-  <div class="dlg-head"><h2>Import loads</h2><button class="x" type="button" data-close aria-label="Close">×</button></div>
+  <div class="dlg-head"><h2>Google Sheet &amp; import</h2><button class="x" type="button" data-close aria-label="Close">×</button></div>
   <div class="dlg-body">
+    <fieldset><legend>Keep loads in sync with a Google Sheet</legend>
+      <p class="help" style="margin:0">Keep your loads in a Google Sheet, one row per load. The site checks it every <span id="syncMin">5</span> minutes: <b>new row</b> → load posted, <b>edited row</b> → load updated, <b>deleted row</b> → load closed (its bids are kept). Every row needs a <b>Load #</b>. Share the sheet as "Anyone with the link → Viewer". Loads you add here in admin aren't touched.</p>
+      <div id="syncStatus"></div>
+      <div class="field"><label for="loadSheetUrl">Load sheet link</label><input id="loadSheetUrl" type="url" placeholder="https://docs.google.com/spreadsheets/d/…"></div>
+      <div class="actions"><button class="btn primary" type="button" id="saveSync">Save link &amp; sync</button><button class="btn" type="button" id="runSync">Sync now</button>
+        <a class="btn" href="/api/admin/template.csv">Download column template</a></div>
+    </fieldset>
+    <fieldset><legend>Or import a file once</legend>
     <p class="help" style="margin:0">Upload a .csv or .xlsx with one load per row. Columns are matched by header name (e.g. <span class="mono">origin_city, origin_state, dest_city, dest_state, pickup_date, equipment, weight, bid_deadline, target_rate</span>). Rows without an origin and destination are skipped.</p>
-    <div><a class="btn sm" href="/api/admin/template.csv">Download template</a></div>
     <input type="file" id="importFile" accept=".csv,.xlsx">
     <div id="importMsg"></div>
+    </fieldset>
   </div>
 </dialog>
 
@@ -229,6 +267,7 @@ $$('.tabs button').forEach(b => b.onclick = () => {
   $$('[data-pane]').forEach(p => p.hidden = p.dataset.pane !== b.dataset.tab);
   if (b.dataset.tab === 'carriers') loadCarriers();
   if (b.dataset.tab === 'settings') fillSettings();
+  if (b.dataset.tab === 'email') loadEmailTab();
 });
 $$('dialog [data-close]').forEach(b => b.onclick = () => b.closest('dialog').close());
 
@@ -258,7 +297,7 @@ function renderLoads() {
     return `<tr>
       <td><span class="status ${st}">${esc(stLabel)}</span></td>
       <td><div class="lane">${esc(place(l.origin_city, l.origin_state, l.origin_zip))} <span class="arrow">→</span> ${esc(place(l.dest_city, l.dest_state, l.dest_zip))}</div>
-        <div class="muted mono" style="font-size:12.5px">${l.ref ? '#' + esc(l.ref) + ' · ' : ''}${esc(l.public_id)}${geoNote}</div></td>
+        <div class="muted mono" style="font-size:12.5px">${l.ref ? '#' + esc(l.ref) + ' · ' : ''}${esc(l.public_id)}${l.source === 'sheet' ? ' <span class="chip" title="Managed by your Google Sheet">sheet</span>' : ''}${geoNote}</div></td>
       <td style="white-space:nowrap">${esc(fmtDate(l.pickup_date))}</td>
       <td>${esc(l.equipment || '')}</td>
       <td class="num">${l.miles ? Number(l.miles).toLocaleString() : '—'}</td>
@@ -316,6 +355,7 @@ function openLoad(l) {
   if (editing && editing.miles && !editing.miles_manual) f.elements.miles.placeholder = `${Math.round(editing.miles)} (calculated)`; else f.elements.miles.placeholder = '';
   if (v.status === 'awarded') { f.elements.status.value = 'closed'; }
   $('#loadMsg').innerHTML = v.status === 'awarded' ? '<div class="notice warn">This load is awarded. Use "Reopen" in the bids window to take bids again.</div>' : '';
+  if (editing && editing.source === 'sheet') $('#loadMsg').innerHTML += '<div class="notice warn" style="margin-top:8px">This load comes from your Google Sheet. Edits here will be overwritten at the next sync — change the sheet instead.</div>';
   f.elements.status.disabled = v.status === 'awarded';
   $('#editOnly').hidden = !editing;
   $('#loadDlg').showModal();
@@ -405,7 +445,28 @@ function wire(l) {
 function fileToBase64(file) {
   return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1]); r.onerror = rej; r.readAsDataURL(file); });
 }
-$('#importBtn').onclick = () => { $('#importMsg').innerHTML = ''; $('#importFile').value = ''; $('#importDlg').showModal(); };
+$('#importBtn').onclick = async () => { $('#importMsg').innerHTML = ''; $('#importFile').value = ''; $('#importDlg').showModal(); renderSync(await api('/api/admin/loadsync')); };
+function renderSync(st) {
+  $('#syncMin').textContent = st.minutes;
+  $('#loadSheetUrl').value = st.url || '';
+  const l = st.last;
+  let html = '';
+  if (st.error) html = `<div class="notice err"><b>Last sync failed:</b> ${esc(st.error)}</div>`;
+  else if (st.url && l) {
+    html = `<div class="notice ok">Synced ${esc(fmtDateTime(l.at))}: ${l.rows} row${l.rows === 1 ? '' : 's'} read · ${l.created} new · ${l.updated} updated · ${l.closed} closed · ${st.sheetLoads} open from sheet.</div>`;
+    if (l.skipped && l.skipped.length) html += `<div class="notice warn" style="margin-top:8px">Skipped: ${l.skipped.map(x => 'row ' + x.row + ' (' + esc(x.reason) + ')').join(', ')}</div>`;
+  } else if (!st.url) html = '<div class="muted">Not connected yet.</div>';
+  $('#syncStatus').innerHTML = html;
+}
+$('#saveSync').onclick = async () => {
+  $('#syncStatus').innerHTML = '<div class="muted">Reading sheet…</div>';
+  const st = await api('/api/admin/loadsync', { method: 'PUT', body: { url: $('#loadSheetUrl').value } });
+  renderSync(st); refreshLoads(); setTimeout(refreshLoads, 6000);
+};
+$('#runSync').onclick = async () => {
+  $('#syncStatus').innerHTML = '<div class="muted">Syncing…</div>';
+  renderSync(await api('/api/admin/loadsync/run', { method: 'POST' })); refreshLoads(); setTimeout(refreshLoads, 6000);
+};
 $('#importFile').onchange = async e => {
   const file = e.target.files[0]; if (!file) return;
   $('#importMsg').innerHTML = '<div class="muted">Importing…</div>';
@@ -452,6 +513,63 @@ $('#testForm').onsubmit = async e => {
   const r = await api('/api/admin/carriers/test', { method: 'POST', body: { mc: $('#testMc').value } });
   $('#testOut').innerHTML = r.ok ? `<span class="chip eq">✓ MC ${esc(r.mc)} approved${r.name ? ' · ' + esc(r.name) : ''}</span>`
     : `<span class="chip bad">${r.reason === 'invalid' ? 'Not a valid MC number' : 'MC ' + esc(r.mc) + ' not on list'}</span>`;
+};
+
+// ---------- daily email ----------
+let digest = null, contacts = [];
+async function loadEmailTab() {
+  [digest, contacts] = await Promise.all([api('/api/admin/digest'), api('/api/admin/contacts')]);
+  $('#digestPreview').innerHTML = digest.html;
+  $('#digestInfo').textContent = `${digest.count} open load${digest.count === 1 ? '' : 's'} · Subject: ${digest.subject}`;
+  renderContacts();
+}
+function recipients() {
+  return contacts.filter(c => !c.opted_out && (!$('#onlyPass').checked || c.highway_pass));
+}
+function renderContacts() {
+  const shown = contacts.filter(c => !$('#onlyPass').checked || c.highway_pass);
+  const n = recipients().length;
+  $('#contactInfo').textContent = `${n} address${n === 1 ? '' : 'es'} will be copied · ${contacts.length} collected in total`;
+  if (!shown.length) { $('#contactTable').innerHTML = `<tbody><tr><td class="empty">${contacts.length ? 'No Highway-passing carriers with an email yet. Uncheck "Only Highway pass" to see everyone.' : 'No carrier emails yet. They are added as carriers bid, or add an Email column to your Highway sheet.'}</td></tr></tbody>`; return; }
+  $('#contactTable').innerHTML = `<thead><tr><th>Email</th><th>Carrier</th><th>Highway</th><th>From</th><th class="num">Bids</th><th>Last bid</th><th></th></tr></thead><tbody>` +
+    shown.map(c => `<tr style="${c.opted_out ? 'opacity:.5' : ''}">
+      <td class="mono" style="font-size:13.5px">${esc(c.email)}</td>
+      <td><b>${esc(c.company || '')}</b>${c.mc ? `<div class="mono muted" style="font-size:12.5px">MC ${esc(c.mc)}</div>` : ''}${c.contact_name ? `<div style="font-size:13px">${esc(c.contact_name)}${c.phone ? ' · ' + esc(c.phone) : ''}</div>` : ''}</td>
+      <td>${c.highway_pass ? '<span class="chip" style="background:color-mix(in srgb, var(--good) 14%, transparent);color:var(--good);border-color:transparent">✓ Pass</span>' : '<span class="chip bad">✗ Not on list</span>'}</td>
+      <td style="font-size:13px">${esc(c.sources.join(', '))}</td>
+      <td class="num">${c.bid_count || 0}</td>
+      <td style="white-space:nowrap">${c.last_bid ? esc(fmtDateTime(c.last_bid)) : '—'}</td>
+      <td>${c.opted_out ? `<button class="btn sm" data-optin="${esc(c.email)}">Add back</button>` : `<button class="btn sm danger" data-optout="${esc(c.email)}">Remove</button>`}</td></tr>`).join('') + '</tbody>';
+}
+$('#onlyPass').onchange = renderContacts;
+$('#contactTable').onclick = async e => {
+  const b = e.target.closest('button[data-optout],button[data-optin]'); if (!b) return;
+  const email = b.dataset.optout || b.dataset.optin;
+  await api('/api/admin/contacts/optout', { method: 'POST', body: { email, out: !!b.dataset.optout } });
+  const c = contacts.find(x => x.email === email); if (c) c.opted_out = !!b.dataset.optout;
+  renderContacts(); toast(b.dataset.optout ? 'Removed from the list' : 'Added back');
+};
+async function copyPlain(text, msg) {
+  try { await navigator.clipboard.writeText(text); toast(msg); }
+  catch (_) { const t = document.createElement('textarea'); t.value = text; document.body.appendChild(t); t.select(); document.execCommand('copy'); t.remove(); toast(msg); }
+}
+$('#copyEmails').onclick = () => {
+  const list = recipients().map(c => c.email);
+  if (!list.length) return toast('No addresses to copy');
+  copyPlain(list.join('; '), `Copied ${list.length} address${list.length === 1 ? '' : 'es'} — paste into BCC`);
+};
+$('#copySubject').onclick = () => digest && copyPlain(digest.subject, 'Subject copied');
+$('#copyText').onclick = () => digest && copyPlain(digest.text, 'Plain-text email copied');
+$('#copyDigest').onclick = async () => {
+  if (!digest) return;
+  try {
+    await navigator.clipboard.write([new ClipboardItem({ 'text/html': new Blob([digest.html], { type: 'text/html' }), 'text/plain': new Blob([digest.text], { type: 'text/plain' }) })]);
+    toast('Email copied — paste into a new message');
+  } catch (_) {
+    const r = document.createRange(); r.selectNodeContents($('#digestPreview'));
+    const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); document.execCommand('copy'); sel.removeAllRanges();
+    toast('Email copied — paste into a new message');
+  }
 };
 
 // ---------- settings ----------
