@@ -241,3 +241,5 @@ legend { font-family: var(--display); font-weight: 700; font-size: 16px; text-tr
 .mybid.state-outbid { border-left: 4px solid var(--amber); }
 .mybid.state-leading, .mybid.state-won { border-left: 4px solid var(--good); }
 @media (max-width: 600px) { .mybid { grid-template-columns: 1fr; } .mybid .btn { width: 100%; } }
+
+.req { color: var(--bad); margin-left: 2px; font-weight: 700; }

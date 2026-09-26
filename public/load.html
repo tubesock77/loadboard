@@ -140,20 +140,19 @@ function renderBidbox() {
     <h2>Bid on this load</h2>
     ${myState ? statusLine(myState) : mine ? `<div class="notice warn">You bid ${esc(money(mine.amount))} on ${esc(fmtDateTime(mine.at))}. Submitting again replaces your bid.</div>` : ''}
     <form id="bform" class="stack" novalidate>
-      <div class="field"><label for="amount">All-in rate <span class="hint">(linehaul + fuel, USD)</span></label>
+      <div class="field"><label for="amount">All-in rate<span class="req" aria-hidden="true">*</span> <span class="hint">(linehaul + fuel, USD)</span></label>
         <div class="money"><input id="amount" inputmode="decimal" autocomplete="off" placeholder="0" value="${myState && myState.state === 'outbid' && myState.next_max ? esc(myState.next_max) : mine ? esc(mine.amount) : ''}" required></div>
         <div class="rpm" id="rpm" style="margin-top:4px"></div>
         ${stepHint}</div>
+      <div class="field" style="max-width:220px"><label for="mc">MC number<span class="req" aria-hidden="true">*</span></label><input id="mc" inputmode="numeric" autocomplete="off" placeholder="e.g. 123456" value="${esc(c.mc || '')}" required></div>
+      <div class="field"><label for="company">Company<span class="req" aria-hidden="true">*</span></label><input id="company" autocomplete="organization" value="${esc(c.company || '')}" required></div>
       <div class="grid g2">
-        <div class="field"><label for="mc">MC number</label><input id="mc" inputmode="numeric" autocomplete="off" placeholder="e.g. 123456" value="${esc(c.mc || '')}" required></div>
-        <div class="field"><label for="company">Company</label><input id="company" autocomplete="organization" value="${esc(c.company || '')}" required></div>
+        <div class="field"><label for="cname">Your name<span class="req" aria-hidden="true">*</span></label><input id="cname" autocomplete="name" value="${esc(c.contact_name || '')}" required></div>
+        <div class="field"><label for="phone">Phone<span class="req" aria-hidden="true">*</span> <span class="hint">(or email)</span></label><input id="phone" type="tel" autocomplete="tel" value="${esc(c.phone || '')}"></div>
       </div>
-      <div class="grid g2">
-        <div class="field"><label for="cname">Your name</label><input id="cname" autocomplete="name" value="${esc(c.contact_name || '')}" required></div>
-        <div class="field"><label for="phone">Phone</label><input id="phone" type="tel" autocomplete="tel" value="${esc(c.phone || '')}"></div>
-      </div>
-      <div class="field"><label for="email">Email</label><input id="email" type="email" autocomplete="email" value="${esc(c.email || '')}"></div>
+      <div class="field"><label for="email">Email<span class="req" aria-hidden="true">*</span> <span class="hint">(or phone)</span></label><input id="email" type="email" autocomplete="email" value="${esc(c.email || '')}"></div>
       <div class="field"><label for="bnotes">Notes <span class="hint">(optional — truck availability, questions)</span></label><textarea id="bnotes" rows="2"></textarea></div>
+      <div class="hint"><span class="req">*</span> Required</div>
       <div id="bmsg" aria-live="polite"></div>
       <button class="btn primary" type="submit" id="bbtn">${mine ? 'Update my bid' : 'Submit bid'}</button>
       <div class="terms">${esc(cfg.bid_terms || '')}</div>

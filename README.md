@@ -28,6 +28,7 @@ There are no third-party packages. It needs only Node.js 22.13 or newer and uses
 - **Export all bids**: downloads a CSV of every bid.
 - **Daily email**: a ready-to-send email of every open load with "View & bid" links, plus your carrier email list (collected from bids and any Email column in your Highway sheet). Filter to Highway-pass carriers, copy the addresses into BCC, and remove anyone who opts out.
 - **Approved carriers**: paste your Google Sheet or Excel link, or upload a file. See below.
+- **Settings → Email**: bid alerts to you (reply goes to the carrier), carrier bid confirmations, outbid notices, award notices, optional "load covered" notices, and an automatic daily load list (time and days, Denver time). **Send test email** checks the connection. Every email about a load uses the same subject ("Load # · lane") so Outlook keeps it in one conversation.
 - **Settings**: company name, tagline, default contact info and the bid terms shown to carriers.
 
 ## Hooking up your Highway list
@@ -83,6 +84,8 @@ Any host that runs Node and has a **persistent disk** will work. Your loads and 
 | `SMARTSHEET_TOKEN` | for Smartsheet | Smartsheet API token (Account → Apps & Integrations → API Access). |
 | `SMARTSHEET_SHEET_ID` | no | Defaults to the LOAD BOARD sheet (7699725211094916); can also be changed in admin. |
 | `SMARTSHEET_SYNC_MINUTES` | no | How often Smartsheet is read. Defaults to 3. |
+| `MS_TENANT_ID`, `MS_CLIENT_ID`, `MS_CLIENT_SECRET` | for email | Entra app "LOADBOARD". Its Mail.Send permission is limited in Exchange to the EMAIL_FROM mailbox only (RBAC for Applications, scope "Load Board mailbox"). |
+| `EMAIL_FROM` | for email | `loads@brocktrans.com`. All emails are sent as this mailbox and saved in its Sent Items. |
 | `PUBLIC_URL` | no | The address used in daily-email links, e.g. `https://loads.yourdomain.com`. Defaults to the address you're using. |
 | `COOKIE_SECURE` | no | Set to `1` to force secure cookies. This happens automatically behind HTTPS on most hosts. |
 

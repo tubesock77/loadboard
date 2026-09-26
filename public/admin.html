@@ -65,7 +65,8 @@
           <div class="toolbar" style="margin-bottom:6px">
             <div><h3 style="margin:0">Today's load list</h3><div class="help" id="digestInfo"></div></div>
             <div class="right">
-              <button class="btn primary" type="button" id="copyDigest">Copy email</button>
+              <button class="btn primary" type="button" id="sendDaily" hidden>Send now</button>
+              <button class="btn" type="button" id="copyDigest">Copy email</button>
               <button class="btn" type="button" id="copySubject">Copy subject</button>
               <button class="btn" type="button" id="copyText">Copy as plain text</button>
             </div>
@@ -129,6 +130,30 @@
 
     <!-- SETTINGS -->
     <section data-pane="settings" hidden>
+      <form class="panel card stack" id="emailForm" style="max-width:820px;margin-bottom:16px">
+        <h3>Email</h3>
+        <div id="emailStatus"></div>
+        <div class="grid g2">
+          <div class="field"><label for="e_notify">Send bid alerts to <span class="hint">(blank = the sending mailbox)</span></label><input id="e_notify" type="email" placeholder="you@brocktrans.com"></div>
+          <div class="field" style="align-self:end"><button class="btn" type="button" id="e_test">Send test email</button></div>
+        </div>
+        <fieldset><legend>Automatic emails</legend>
+          <label style="font-weight:500"><input type="checkbox" id="e_em_bid_alert" style="width:auto"> Email me when a new bid comes in (reply goes to the carrier)</label>
+          <label style="font-weight:500"><input type="checkbox" id="e_em_bid_confirm" style="width:auto"> Send carriers a confirmation of their bid</label>
+          <label style="font-weight:500"><input type="checkbox" id="e_em_outbid" style="width:auto"> Tell a carrier when they've been outbid</label>
+          <label style="font-weight:500"><input type="checkbox" id="e_em_award_win" style="width:auto"> Email the carrier when I award them a load</label>
+          <label style="font-weight:500"><input type="checkbox" id="e_em_award_lost" style="width:auto"> Tell the other bidders the load is covered</label>
+        </fieldset>
+        <fieldset><legend>Daily load list</legend>
+          <label style="font-weight:500"><input type="checkbox" id="e_daily_auto" style="width:auto"> Send the daily load list automatically</label>
+          <div class="grid g2">
+            <div class="field"><label for="e_daily_time">Time (Denver)</label><input id="e_daily_time" type="time"></div>
+            <div class="field"><label>Days</label><div class="actions" id="e_days"></div></div>
+          </div>
+          <label style="font-weight:500"><input type="checkbox" id="e_daily_only_pass" style="width:auto"> Only send to Highway-pass carriers</label>
+        </fieldset>
+        <div><button class="btn primary" type="submit">Save email settings</button></div>
+      </form>
       <form class="panel card stack" id="settingsForm" style="max-width:820px">
         <h3>Board settings</h3>
         <div class="grid g2">
@@ -276,7 +301,7 @@ $$('.tabs button').forEach(b => b.onclick = () => {
   $$('.tabs button').forEach(x => x.classList.toggle('on', x === b));
   $$('[data-pane]').forEach(p => p.hidden = p.dataset.pane !== b.dataset.tab);
   if (b.dataset.tab === 'carriers') loadCarriers();
-  if (b.dataset.tab === 'settings') fillSettings();
+  if (b.dataset.tab === 'settings') { fillSettings(); loadEmail(); }
   if (b.dataset.tab === 'email') loadEmailTab();
 });
 $$('dialog [data-close]').forEach(b => b.onclick = () => b.closest('dialog').close());
@@ -544,6 +569,7 @@ $('#testForm').onsubmit = async e => {
 // ---------- daily email ----------
 let digest = null, contacts = [];
 async function loadEmailTab() {
+  api('/api/admin/email').then(e => { $('#sendDaily').hidden = !e.configured; }).catch(() => {});
   [digest, contacts] = await Promise.all([api('/api/admin/digest'), api('/api/admin/contacts')]);
   $('#digestPreview').innerHTML = digest.html;
   $('#digestInfo').textContent = `${digest.count} open load${digest.count === 1 ? '' : 's'} · Subject: ${digest.subject}`;
@@ -596,6 +622,47 @@ $('#copyDigest').onclick = async () => {
     const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); document.execCommand('copy'); sel.removeAllRanges();
     toast('Email copied — paste into a new message');
   }
+};
+
+// ---------- email settings ----------
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+$('#e_days').innerHTML = DAYS.map((d, i) => `<label style="font-weight:500;display:flex;gap:4px;align-items:center;margin:0"><input type="checkbox" data-day="${i}" style="width:auto">${d}</label>`).join('');
+const EKEYS = ['em_bid_alert', 'em_bid_confirm', 'em_outbid', 'em_award_win', 'em_award_lost', 'daily_auto', 'daily_only_pass'];
+function renderEmailStatus(e) {
+  $('#emailStatus').innerHTML = !e.configured
+    ? `<div class="notice warn">Not connected. Add ${e.missing.map(esc).join(', ')} in Render → Environment, then redeploy.</div>`
+    : `<div class="notice ok">Sending as <b>${esc(e.from)}</b>${e.lastOk ? ' · last sent ' + esc(fmtDateTime(e.lastOk)) : ''}${e.daily_last_sent ? ' · daily list last sent ' + esc(fmtDateTime(e.daily_last_sent)) : ''}</div>`
+      + (e.lastError ? `<div class="notice err" style="margin-top:8px"><b>Last problem:</b> ${esc(e.lastError)}</div>` : '')
+      + (!e.base ? '<div class="notice warn" style="margin-top:8px">Links in emails need the site address: set PUBLIC_URL in Render (or sign in to admin once on the live address).</div>' : '');
+}
+async function loadEmail() {
+  const e = await api('/api/admin/email');
+  renderEmailStatus(e);
+  $('#e_notify').value = e.notify_email || ''; $('#e_notify').placeholder = e.from || 'you@brocktrans.com';
+  EKEYS.forEach(k => { $('#e_' + k).checked = e[k] === '1'; });
+  $('#e_daily_time').value = e.daily_time || '07:00';
+  const days = String(e.daily_days || '').split(',');
+  $$('#e_days input').forEach(x => { x.checked = days.includes(x.dataset.day); });
+}
+$('#emailForm').onsubmit = async ev => {
+  ev.preventDefault();
+  const body = { notify_email: $('#e_notify').value.trim(), daily_time: $('#e_daily_time').value || '07:00',
+    daily_days: $$('#e_days input').filter(x => x.checked).map(x => x.dataset.day).join(',') };
+  EKEYS.forEach(k => { body[k] = $('#e_' + k).checked ? '1' : '0'; });
+  renderEmailStatus(await api('/api/admin/email', { method: 'PUT', body })); toast('Email settings saved');
+};
+$('#e_test').onclick = async () => {
+  try { const r = await api('/api/admin/email/test', { method: 'POST' }); toast('Test email sent to ' + r.to); }
+  catch (err) { toast('Test failed — see message above'); }
+  renderEmailStatus(await api('/api/admin/email'));
+};
+$('#sendDaily').onclick = async () => {
+  const n = recipients().length;
+  if (!confirm(`Email today's load list to ${n} carrier${n === 1 ? '' : 's'} (BCC) from your mailbox now?`)) return;
+  try {
+    const r = await api('/api/admin/email/daily', { method: 'POST', body: { onlyPass: $('#onlyPass').checked } });
+    toast(r.skipped ? r.skipped : `Sent to ${r.recipients} carrier${r.recipients === 1 ? '' : 's'}`);
+  } catch (err) { toast(err.message); }
 };
 
 // ---------- settings ----------

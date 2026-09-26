@@ -9,6 +9,7 @@ const { db, getSetting, setSetting, newPublicId } = require('./lib/db');
 const qualify = require('./lib/qualify');
 const geo = require('./lib/geo');
 const { parseAny, rowsToObjects } = require('./lib/sheet');
+const mailer = require('./lib/mailer');
 
 const PORT = Number(process.env.PORT || 3000);
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
@@ -244,7 +245,7 @@ function publicConfig() {
     company: getSetting('company_name', 'Brock LLC MC# 375005'),
     tagline: getSetting('board_tagline', 'Truckload freight available for bid'),
     contact_phone: getSetting('default_contact_phone', ''),
-    contact_email: getSetting('default_contact_email', ''),
+    contact_email: getSetting('default_contact_email', '') || process.env.EMAIL_FROM || '',
     bid_step: bidStep(),
     bid_terms: getSetting('bid_terms', `Bids are all-in USD (linehaul + fuel).${bidStep() ? ` Bids go in $${bidStep()} steps (e.g. $1,000, $${(1000 + bidStep()).toLocaleString('en-US')}), and a new low must be at least $${bidStep()} under the current bid.` : ''} Submitting a bid does not guarantee award; we will contact the awarded carrier directly.`),
   };
@@ -572,6 +573,120 @@ function buildDigest(base) {
   return { subject, text, html, count: loads.length };
 }
 
+// ---------- email (sent as your Microsoft 365 mailbox) ----------
+const EMAIL_DEFAULTS = { em_bid_alert: '1', em_bid_confirm: '1', em_outbid: '1', em_award_win: '1', em_award_lost: '0',
+  daily_auto: '0', daily_time: '07:00', daily_days: '1,2,3,4,5', daily_only_pass: '1' };
+const eset = k => getSetting(k, EMAIL_DEFAULTS[k] ?? '');
+const on = k => eset(k) === '1';
+const siteBase = () => process.env.PUBLIC_URL ? process.env.PUBLIC_URL.replace(/\/$/, '') : getSetting('base_url', '');
+const notifyTo = () => getSetting('notify_email', '') || mailer.from();
+const hx = v => (v == null ? '' : String(v).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])));
+const usd = n => (n == null || n === '' ? '—' : '$' + Number(n).toLocaleString('en-US', { maximumFractionDigits: 2 }));
+const laneOf = L => `${[L.origin_city, L.origin_state].filter(Boolean).join(', ')} → ${[L.dest_city, L.dest_state].filter(Boolean).join(', ')}`;
+// same subject for every email about a load, so Outlook keeps them in one conversation
+const loadSubject = L => `Load ${L.ref || L.public_id} · ${laneOf(L)}`;
+function emailLayout(heading, body, cta) {
+  const cfg = publicConfig();
+  return `<div style="max-width:620px;font-family:Arial,sans-serif;color:#141B27">
+    <div style="background:#1D4F9E;color:#fff;padding:14px 18px;border-radius:8px 8px 0 0;font:700 18px Arial,sans-serif;text-transform:uppercase;letter-spacing:.5px">${hx(cfg.company)}</div>
+    <div style="border:1px solid #D6DCE6;border-top:0;padding:18px;border-radius:0 0 8px 8px">
+      <div style="font:700 20px Arial,sans-serif;margin-bottom:10px">${heading}</div>
+      <div style="font:15px/1.5 Arial,sans-serif">${body}</div>
+      ${cta ? `<p style="margin:18px 0 4px"><a href="${hx(cta.url)}" style="display:inline-block;background:#1D4F9E;color:#fff;font:700 15px Arial,sans-serif;text-decoration:none;padding:10px 18px;border-radius:6px">${hx(cta.label)}</a></p>` : ''}
+    </div>
+    <p style="font:12px Arial,sans-serif;color:#586478;margin:10px 2px">${[cfg.contact_phone, cfg.contact_email].filter(Boolean).map(hx).join(' · ')}</p></div>`;
+}
+function loadFacts(L) {
+  const rows = [['Pick up', [L.pickup_date, L.pickup_window].filter(Boolean).join(' ')], ['Deliver', [L.delivery_date, L.delivery_window].filter(Boolean).join(' ')],
+    ['Equipment', [L.equipment, L.temp].filter(Boolean).join(' · ')], ['Weight', L.weight ? Number(L.weight).toLocaleString() + ' lb' : ''], ['Miles', L.miles ? Math.round(L.miles).toLocaleString() : '']]
+    .filter(r => r[1]);
+  return `<table style="border-collapse:collapse;margin:10px 0;font:14px Arial,sans-serif">${rows.map(r => `<tr><td style="padding:3px 14px 3px 0;color:#586478">${r[0]}</td><td style="padding:3px 0"><b>${hx(r[1])}</b></td></tr>`).join('')}</table>`;
+}
+
+function emailsAfterBid(L, bid, prevLow) {
+  if (!mailer.configured()) return;
+  const url = siteBase() ? `${siteBase()}/load/${L.public_id}` : '';
+  const st = bidStats.get(L.id);
+  const step = bidStep();
+  const pass = !!qualify.lookupName(bid.mc) || !!db.prepare('SELECT 1 FROM qualified_carriers WHERE mc = ?').get(bid.mc);
+  if (on('em_bid_alert')) {
+    mailer.sendQuiet({ to: notifyTo(), replyTo: bid.email || undefined, subject: `New bid ${usd(bid.amount)} · ${loadSubject(L)}`,
+      html: emailLayout(`New bid: ${usd(bid.amount)}${L.miles ? ` <span style="color:#586478;font-weight:400">(${usd(Math.round(bid.amount / L.miles * 100) / 100)}/mi)</span>` : ''}`,
+        `<b>${hx(bid.company)}</b> · MC ${hx(bid.mc)} · ${pass ? '<span style="color:#17724A;font-weight:700">✓ Highway pass</span>' : '<span style="color:#B42318;font-weight:700">✗ Not on Highway list</span>'}<br>
+         ${hx(bid.contact_name)} · ${hx(bid.phone || '')} ${bid.email ? '· ' + hx(bid.email) : ''}
+         ${bid.notes ? `<br><i>“${hx(bid.notes)}”</i>` : ''}
+         <p style="margin:12px 0 0"><b>${hx(laneOf(L))}</b>${L.ref ? ' · #' + hx(L.ref) : ''}<br>Current bid ${usd(st.low_bid)} · ${st.bid_count} bid${st.bid_count === 1 ? '' : 's'}${L.target_rate ? ` · target ${usd(L.target_rate)}` : ''}</p>
+         ${bid.email ? '<p style="color:#586478;font-size:13px">Reply to this email to reach the carrier.</p>' : ''}`,
+        siteBase() ? { url: `${siteBase()}/admin`, label: 'Open admin' } : null) }, 'bid alert');
+  }
+  if (on('em_bid_confirm') && bid.email) {
+    const lead = bid.amount <= st.low_bid;
+    mailer.sendQuiet({ to: bid.email, subject: loadSubject(L),
+      html: emailLayout(`Bid received: ${usd(bid.amount)}`,
+        `Thanks, ${hx(bid.contact_name || bid.company)}. We received your bid on <b>${hx(laneOf(L))}</b>${L.ref ? ' (#' + hx(L.ref) + ')' : ''}.${loadFacts(L)}
+         ${lead ? '<b style="color:#17724A">You are currently the lowest bid.</b> We\'ll email you if you\'re outbid.'
+          : `<b style="color:#B7780A">You are not the lowest bid.</b> The current bid is ${usd(st.low_bid)}.${step ? ` Bid ${usd(st.low_bid - step)} or less to take the lead.` : ''}`}
+         <p>Questions? Just reply to this email.</p>`, url ? { url, label: lead ? 'View load' : 'Rebid' } : null) }, 'bid confirmation');
+  }
+  // tell the carrier who just lost the lead
+  if (on('em_outbid') && prevLow && prevLow.mc !== bid.mc && prevLow.email && bid.amount < prevLow.amount) {
+    mailer.sendQuiet({ to: prevLow.email, subject: loadSubject(L),
+      html: emailLayout(`You've been outbid`,
+        `Another carrier bid <b>${usd(bid.amount)}</b> on <b>${hx(laneOf(L))}</b>${L.ref ? ' (#' + hx(L.ref) + ')' : ''}. Your bid was ${usd(prevLow.amount)}.
+         ${step ? `<p>To take the lead, bid <b>${usd(bid.amount - step)} or less</b>.</p>` : ''}${L.bid_deadline ? `<p style="color:#586478">Bids due ${hx(new Date(L.bid_deadline).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: TIMEZONE }))}</p>` : ''}`,
+        url ? { url, label: 'Rebid now' } : null) }, 'outbid notice');
+  }
+}
+
+function emailsAfterAward(L, winner) {
+  if (!mailer.configured()) return;
+  const url = siteBase() ? `${siteBase()}/load/${L.public_id}` : '';
+  if (on('em_award_win') && winner.email) {
+    mailer.sendQuiet({ to: winner.email, subject: loadSubject(L),
+      html: emailLayout(`You've been awarded this load`,
+        `Congratulations, ${hx(winner.contact_name || winner.company)}. <b>${hx(laneOf(L))}</b>${L.ref ? ' (#' + hx(L.ref) + ')' : ''} is awarded to <b>${hx(winner.company)}</b> (MC ${hx(winner.mc)}) at <b>${usd(winner.amount)}</b>.${loadFacts(L)}
+         <p>We'll follow up with the rate confirmation and pickup details. Reply to this email with any questions.</p>`, url ? { url, label: 'View load' } : null) }, 'award notice');
+  }
+  if (on('em_award_lost')) {
+    for (const b of db.prepare(`SELECT * FROM bids WHERE load_id = ? AND id != ? AND email != ''`).all(L.id, winner.id)) {
+      mailer.sendQuiet({ to: b.email, subject: loadSubject(L),
+        html: emailLayout('Load covered', `Thanks for bidding on <b>${hx(laneOf(L))}</b>${L.ref ? ' (#' + hx(L.ref) + ')' : ''}. This load has been covered. We hope to work with you on the next one.`,
+          siteBase() ? { url: siteBase() + '/', label: 'See other loads' } : null) }, 'covered notice');
+    }
+  }
+}
+
+async function sendDailyEmail(base, onlyPass) {
+  const d = buildDigest(base || siteBase());
+  if (!d.count) return { sent: 0, recipients: 0, skipped: 'No open loads to send.' };
+  const list = carrierContacts().filter(c => !c.opted_out && (!(onlyPass ?? on('daily_only_pass')) || c.highway_pass)).map(c => c.email);
+  if (!list.length) return { sent: 0, recipients: 0, skipped: 'No carrier email addresses to send to.' };
+  let sent = 0;
+  for (let i = 0; i < list.length; i += 50) { // 50 BCC per message keeps well inside Microsoft limits
+    await mailer.send({ to: mailer.from(), bcc: list.slice(i, i + 50), subject: d.subject, html: d.html });
+    sent++;
+  }
+  setSetting('daily_last_sent', new Date().toISOString());
+  return { sent, recipients: list.length, loads: d.count };
+}
+
+function startDailyScheduler() {
+  setInterval(() => {
+    if (!on('daily_auto') || !mailer.configured()) return;
+    const now = new Date();
+    const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: TIMEZONE, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false, weekday: 'short' })
+      .formatToParts(now).map(p => [p.type, p.value]));
+    const today = `${parts.year}-${parts.month}-${parts.day}`;
+    const dow = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }[parts.weekday];
+    const hhmm = `${parts.hour === '24' ? '00' : parts.hour}:${parts.minute}`;
+    if (!eset('daily_days').split(',').map(Number).includes(dow)) return;
+    if (hhmm < eset('daily_time') || getSetting('daily_last_day') === today) return;
+    setSetting('daily_last_day', today);
+    sendDailyEmail().then(r => console.log('[email] daily list:', JSON.stringify(r)))
+      .catch(e => { console.warn('[email] daily list failed:', e.message); setSetting('email_last_error', `${new Date().toISOString()} daily list: ${e.message}`); });
+  }, 60000).unref();
+}
+
 // ---------- router ----------
 async function handle(req, res) {
   const url = new URL(req.url, 'http://x');
@@ -664,6 +779,7 @@ async function handle(req, res) {
     if (!contact) return fail(res, 400, 'Enter a contact name.');
     if (!email && !phone) return fail(res, 400, 'Enter a phone number or email so we can reach you.');
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return fail(res, 400, 'That email address doesn\'t look right.');
+    const prevLow = db.prepare('SELECT * FROM bids WHERE load_id = ? ORDER BY amount ASC, created_at ASC LIMIT 1').get(L.id);
     db.prepare(`INSERT INTO bids (load_id, mc, company, contact_name, email, phone, amount, notes, ip)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(load_id, mc) DO UPDATE SET company=excluded.company, contact_name=excluded.contact_name, email=excluded.email,
@@ -674,6 +790,7 @@ async function handle(req, res) {
     if (!tok) { tok = crypto.randomBytes(12).toString('base64url'); db.prepare('UPDATE bids SET token = ? WHERE load_id = ? AND mc = ?').run(tok, L.id, mc); }
     const st = bidStats.get(L.id);
     smartsheetSoon();
+    emailsAfterBid(L, db.prepare('SELECT * FROM bids WHERE load_id = ? AND mc = ?').get(L.id, mc), prevLow);
     return send(res, 200, { ok: true, amount, token: tok, low_bid: st.low_bid, bid_count: st.bid_count, you_are_low: amount <= st.low_bid,
       next_max: bidStep() ? st.low_bid - bidStep() : null });
   }
@@ -698,6 +815,27 @@ async function handle(req, res) {
     // any admin change may affect what Smartsheet should show
     if (m !== 'GET' && !p.startsWith('/api/admin/smartsheet')) smartsheetSoon();
     if (m === 'GET' && p === '/api/admin/smartsheet') return send(res, 200, smartsheetStatus());
+    if (p === '/api/admin/email') {
+      if (m === 'PUT') {
+        const b = await readBody(req, 5000);
+        for (const k of [...Object.keys(EMAIL_DEFAULTS), 'notify_email']) if (k in b) setSetting(k, String(b[k] ?? '').slice(0, 200));
+      }
+      const out = { ...mailer.status(), notify_email: getSetting('notify_email', ''), notify_effective: notifyTo(), daily_last_sent: getSetting('daily_last_sent', ''), base: siteBase() };
+      for (const k of Object.keys(EMAIL_DEFAULTS)) out[k] = eset(k);
+      return send(res, 200, out);
+    }
+    if (m === 'POST' && p === '/api/admin/email/test') {
+      try {
+        await mailer.send({ to: notifyTo(), subject: 'Load board test email', html: emailLayout('It works ✓', `This test was sent by your load board as <b>${hx(mailer.from())}</b>. Bid alerts, carrier confirmations, outbid notices, award notices and the daily load list will come from this address.`) });
+        setSetting('email_last_error', '');
+        return send(res, 200, { ok: true, to: notifyTo() });
+      } catch (e) { setSetting('email_last_error', `${new Date().toISOString()} test: ${e.message}`); return fail(res, 400, e.message); }
+    }
+    if (m === 'POST' && p === '/api/admin/email/daily') {
+      const { onlyPass } = await readBody(req, 1000);
+      try { return send(res, 200, await sendDailyEmail(baseUrl(req), typeof onlyPass === 'boolean' ? onlyPass : undefined)); }
+      catch (e) { setSetting('email_last_error', `${new Date().toISOString()} daily list: ${e.message}`); return fail(res, 400, e.message); }
+    }
     if (m === 'POST' && p === '/api/admin/smartsheet/run') { try { await syncSmartsheet(); } catch (_) { /* saved in status */ } return send(res, 200, smartsheetStatus()); }
     if (m === 'PUT' && p === '/api/admin/smartsheet') { const { sheetId } = await readBody(req, 2000); setSetting('ss_sheet_id', String(sheetId || '').replace(/\D/g, '')); try { await syncSmartsheet(); } catch (_) { /* saved */ } return send(res, 200, smartsheetStatus()); }
 
@@ -733,6 +871,7 @@ async function handle(req, res) {
       db.prepare(`UPDATE bids SET status = CASE WHEN id = ? THEN 'awarded' ELSE 'lost' END WHERE load_id = ?`).run(bid.id, bid.load_id);
       db.prepare(`UPDATE loads SET status = 'awarded', awarded_bid_id = ?, updated_at = datetime('now') WHERE id = ?`).run(bid.id, bid.load_id);
       db.exec('COMMIT');
+      emailsAfterAward(db.prepare('SELECT * FROM loads WHERE id = ?').get(bid.load_id), bid);
       return send(res, 200, { ok: true });
     }
     if (m === 'POST' && (mm = p.match(/^\/api\/admin\/loads\/(\d+)\/reopen$/))) {
@@ -847,5 +986,6 @@ server.listen(PORT, () => {
   qualify.startAutoRefresh();
   startLoadSync();
   startSmartsheetSync();
+  startDailyScheduler();
   geo.resumePending();
 });
