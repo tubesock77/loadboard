@@ -63,27 +63,47 @@
       <div class="stack">
         <div class="panel card">
           <div class="toolbar" style="margin-bottom:6px">
-            <div><h3 style="margin:0">Today's load list</h3><div class="help" id="digestInfo"></div></div>
+            <div><h3 style="margin:0">1 · Loads in this email</h3><div class="help" id="loadPickInfo"></div></div>
+            <div class="right"><button class="btn sm" type="button" id="loadsAll">All</button><button class="btn sm" type="button" id="loadsNone">None</button></div>
+          </div>
+          <div id="loadPick" class="pickgrid"></div>
+        </div>
+
+        <div class="panel card">
+          <div class="toolbar" style="margin-bottom:6px">
+            <div><h3 style="margin:0">2 · Who gets it</h3><div class="help" id="contactInfo"></div></div>
             <div class="right">
-              <button class="btn primary" type="button" id="sendDaily" hidden>Send now</button>
+              <button class="btn primary" type="button" id="sendDaily" hidden>Send</button>
+              <button class="btn" type="button" id="copyEmails">Copy addresses for BCC</button>
+            </div>
+          </div>
+          <div class="targetbar">
+            <label class="opt"><input type="radio" name="tmode" value="all" checked> Everyone on the list</label>
+            <label class="opt"><input type="radio" name="tmode" value="match"> Carriers who fit these loads</label>
+            <label class="opt" style="margin-left:auto"><input type="checkbox" id="onlyPass" checked> Only Highway pass</label>
+          </div>
+          <div id="matchOpts" class="targetbar" hidden>
+            <span class="muted" style="font-size:13px;font-weight:600">Include carriers who…</span>
+            <label class="opt"><input type="checkbox" id="mSameLane" checked> bid the same lane (pickup state → delivery state)</label>
+            <label class="opt"><input type="checkbox" id="mOrigin"> bid any load from the pickup state</label>
+            <label class="opt"><input type="checkbox" id="mDest"> bid any load into the delivery state</label>
+            <label class="opt"><input type="checkbox" id="mHome" checked> are based in the pickup state (Highway address)</label>
+          </div>
+          <div id="laneChips" class="lanechips"></div>
+          <div class="panel table-wrap" style="margin-top:10px"><table class="data" id="contactTable"></table></div>
+          <p class="help" style="margin:10px 0 0">Carriers are collected from bids (their email on the bid form) and your Highway sheet (Dispatch Email and address). Lanes come from the loads each carrier has bid on. Tick or untick anyone to adjust. <b>Remove</b> takes someone off all future emails.</p>
+        </div>
+
+        <div class="panel card">
+          <div class="toolbar" style="margin-bottom:6px">
+            <div><h3 style="margin:0">3 · Preview</h3><div class="help" id="digestInfo"></div></div>
+            <div class="right">
               <button class="btn" type="button" id="copyDigest">Copy email</button>
               <button class="btn" type="button" id="copySubject">Copy subject</button>
               <button class="btn" type="button" id="copyText">Copy as plain text</button>
             </div>
           </div>
-          <p class="help" style="margin:0 0 12px">Every open load with its "View &amp; bid" link, built fresh each time you open this tab. Click <b>Copy email</b>, paste into a new Outlook or Gmail message, then paste the addresses below into <b>BCC</b>.</p>
           <div id="digestPreview" style="border:1px dashed var(--line);border-radius:8px;padding:14px;background:#ffffff;overflow-x:auto"></div>
-        </div>
-        <div class="panel card">
-          <div class="toolbar" style="margin-bottom:6px">
-            <div><h3 style="margin:0">Carrier email list</h3><div class="help" id="contactInfo"></div></div>
-            <div class="right">
-              <label style="display:flex;gap:6px;align-items:center;margin:0;font-weight:600"><input type="checkbox" id="onlyPass" checked style="width:auto"> Only Highway pass</label>
-              <button class="btn primary" type="button" id="copyEmails">Copy addresses for BCC</button>
-            </div>
-          </div>
-          <p class="help" style="margin:0 0 12px">Built automatically from carriers who bid (their email on the bid form) plus any email column in your Highway sheet. Click <b>Remove</b> when someone asks to stop getting the list.</p>
-          <div class="panel table-wrap"><table class="data" id="contactTable"></table></div>
         </div>
       </div>
     </section>
@@ -566,34 +586,106 @@ $('#testForm').onsubmit = async e => {
     : `<span class="chip bad">${r.reason === 'invalid' ? 'Not a valid MC number' : 'MC ' + esc(r.mc) + ' not on list'}</span>`;
 };
 
-// ---------- daily email ----------
-let digest = null, contacts = [];
+// ---------- daily email (targeted) ----------
+let digest = null, contacts = [], openLoads = [], pickLoads = new Set(), overrides = new Map(), laneSel = new Set(), emailOn = false;
+const laneKey = (o, d) => `${o}>${d}`;
 async function loadEmailTab() {
-  api('/api/admin/email').then(e => { $('#sendDaily').hidden = !e.configured; }).catch(() => {});
-  [digest, contacts] = await Promise.all([api('/api/admin/digest'), api('/api/admin/contacts')]);
-  $('#digestPreview').innerHTML = digest.html;
-  $('#digestInfo').textContent = `${digest.count} open load${digest.count === 1 ? '' : 's'} · Subject: ${digest.subject}`;
-  renderContacts();
+  api('/api/admin/email').then(e => { emailOn = e.configured; $('#sendDaily').hidden = !e.configured; renderContacts(); }).catch(() => {});
+  const [d, c] = await Promise.all([api('/api/admin/digest'), api('/api/admin/contacts')]);
+  contacts = c; openLoads = d.loads || [];
+  pickLoads = new Set(openLoads.map(l => l.id)); overrides.clear(); laneSel.clear();
+  renderLoadPick(); renderLaneChips(); renderContacts(); showDigest(d);
 }
-function recipients() {
-  return contacts.filter(c => !c.opted_out && (!$('#onlyPass').checked || c.highway_pass));
+function showDigest(d) {
+  digest = d;
+  $('#digestPreview').innerHTML = d.html;
+  $('#digestInfo').textContent = `${d.count} load${d.count === 1 ? '' : 's'} · Subject: ${d.subject}`;
 }
+let digestTimer = null;
+function refreshDigest() {
+  clearTimeout(digestTimer);
+  digestTimer = setTimeout(async () => showDigest(await api('/api/admin/digest?ids=' + [...pickLoads].join(','))), 250);
+}
+function renderLoadPick() {
+  $('#loadPickInfo').textContent = `${pickLoads.size} of ${openLoads.length} open load${openLoads.length === 1 ? '' : 's'} selected`;
+  $('#loadPick').innerHTML = openLoads.length ? openLoads.map(l => `<label class="pick"><input type="checkbox" data-load="${l.id}" ${pickLoads.has(l.id) ? 'checked' : ''}>
+    <span><b>${esc(place(l.origin_city, l.origin_state))} → ${esc(place(l.dest_city, l.dest_state))}</b><br><span class="muted">${[l.pickup_date ? fmtDate(l.pickup_date) : '', l.equipment, l.ref ? '#' + l.ref : ''].filter(Boolean).map(esc).join(' · ')}</span></span></label>`).join('')
+    : '<div class="muted">No open loads right now.</div>';
+}
+$('#loadPick').onchange = e => {
+  const x = e.target.closest('[data-load]'); if (!x) return;
+  x.checked ? pickLoads.add(Number(x.dataset.load)) : pickLoads.delete(Number(x.dataset.load));
+  overrides.clear(); renderLoadPick(); renderContacts(); refreshDigest();
+};
+$('#loadsAll').onclick = () => { pickLoads = new Set(openLoads.map(l => l.id)); overrides.clear(); renderLoadPick(); renderContacts(); refreshDigest(); };
+$('#loadsNone').onclick = () => { pickLoads.clear(); overrides.clear(); renderLoadPick(); renderContacts(); refreshDigest(); };
+
+function renderLaneChips() {
+  const count = new Map();
+  contacts.forEach(c => new Set(c.lanes.map(x => laneKey(x.o, x.d))).forEach(k => count.set(k, (count.get(k) || 0) + 1)));
+  const list = [...count.entries()].sort((a, b) => b[1] - a[1]);
+  $('#laneChips').innerHTML = list.length
+    ? `<span class="muted" style="font-size:13px;font-weight:600">Add everyone who bid a lane:</span> ` + list.map(([k, n]) => `<button type="button" class="lanechip ${laneSel.has(k) ? 'on' : ''}" data-lane="${esc(k)}">${esc(k.replace('>', ' → '))} <span>${n}</span></button>`).join('')
+    : '<span class="muted" style="font-size:13px">Lane history builds up as carriers bid.</span>';
+}
+$('#laneChips').onclick = e => {
+  const b = e.target.closest('[data-lane]'); if (!b) return;
+  laneSel.has(b.dataset.lane) ? laneSel.delete(b.dataset.lane) : laneSel.add(b.dataset.lane);
+  overrides.clear(); renderLaneChips(); renderContacts();
+};
+const mode = () => ($('input[name=tmode]:checked') || {}).value || 'all';
+$$('input[name=tmode]').forEach(r => r.onchange = () => { $('#matchOpts').hidden = mode() !== 'match'; overrides.clear(); renderContacts(); });
+['#mSameLane', '#mOrigin', '#mDest', '#mHome', '#onlyPass'].forEach(id => $(id).onchange = () => { overrides.clear(); renderContacts(); });
+
+// why a carrier matches the selected loads (empty = no match)
+function matchReasons(c) {
+  const r = new Set();
+  const loads = openLoads.filter(l => pickLoads.has(l.id));
+  for (const l of loads) {
+    if ($('#mSameLane').checked && c.lanes.some(x => x.o === l.origin_state && x.d === l.dest_state)) r.add('same lane');
+    if ($('#mOrigin').checked && c.lanes.some(x => x.o === l.origin_state)) r.add('from ' + l.origin_state);
+    if ($('#mDest').checked && c.lanes.some(x => x.d === l.dest_state)) r.add('into ' + l.dest_state);
+    if ($('#mHome').checked && c.hq_state && c.hq_state === l.origin_state) r.add('based in ' + c.hq_state);
+  }
+  return [...r];
+}
+function autoPick(c) {
+  if (laneSel.size && c.lanes.some(x => laneSel.has(laneKey(x.o, x.d)))) return true;
+  if (mode() === 'all') return !laneSel.size;
+  return matchReasons(c).length > 0;
+}
+const eligible = c => !c.opted_out && (!$('#onlyPass').checked || c.highway_pass);
+const isPicked = c => eligible(c) && (overrides.has(c.email) ? overrides.get(c.email) : autoPick(c));
+function recipients() { return contacts.filter(isPicked); }
+
 function renderContacts() {
-  const shown = contacts.filter(c => !$('#onlyPass').checked || c.highway_pass);
   const n = recipients().length;
-  $('#contactInfo').textContent = `${n} address${n === 1 ? '' : 'es'} will be copied · ${contacts.length} collected in total`;
-  if (!shown.length) { $('#contactTable').innerHTML = `<tbody><tr><td class="empty">${contacts.length ? 'No Highway-passing carriers with an email yet. Uncheck "Only Highway pass" to see everyone.' : 'No carrier emails yet. They are added as carriers bid, or add an Email column to your Highway sheet.'}</td></tr></tbody>`; return; }
-  $('#contactTable').innerHTML = `<thead><tr><th>Email</th><th>Carrier</th><th>Highway</th><th>From</th><th class="num">Bids</th><th>Last bid</th><th></th></tr></thead><tbody>` +
-    shown.map(c => `<tr style="${c.opted_out ? 'opacity:.5' : ''}">
-      <td class="mono" style="font-size:13.5px">${esc(c.email)}</td>
-      <td><b>${esc(c.company || '')}</b>${c.mc ? `<div class="mono muted" style="font-size:12.5px">MC ${esc(c.mc)}</div>` : ''}${c.contact_name ? `<div style="font-size:13px">${esc(c.contact_name)}${c.phone ? ' · ' + esc(c.phone) : ''}</div>` : ''}</td>
+  $('#contactInfo').textContent = `${n} selected · ${contacts.length} carrier email${contacts.length === 1 ? '' : 's'} collected`;
+  $('#sendDaily').textContent = `Send to ${n}`;
+  const shown = contacts.filter(c => !$('#onlyPass').checked || c.highway_pass)
+    .sort((a, b) => (isPicked(b) - isPicked(a)) || (b.bid_count || 0) - (a.bid_count || 0));
+  if (!shown.length) { $('#contactTable').innerHTML = `<tbody><tr><td class="empty">${contacts.length ? 'No Highway-passing carriers with an email yet. Uncheck "Only Highway pass" to see everyone.' : 'No carrier emails yet. They are added as carriers bid, or from the Dispatch Email column in your Highway sheet.'}</td></tr></tbody>`; return; }
+  const wantLanes = new Set(openLoads.filter(l => pickLoads.has(l.id)).map(l => laneKey(l.origin_state, l.dest_state)));
+  $('#contactTable').innerHTML = `<thead><tr><th style="width:34px"><input type="checkbox" id="pickAll" aria-label="Select all"></th><th>Carrier</th><th>Highway</th><th>Based</th><th>Lanes bid</th><th class="num">Bids</th><th></th></tr></thead><tbody>` +
+    shown.map(c => {
+      const why = mode() === 'match' ? matchReasons(c) : [];
+      return `<tr style="${c.opted_out ? 'opacity:.5' : ''}">
+      <td><input type="checkbox" data-pick="${esc(c.email)}" ${isPicked(c) ? 'checked' : ''} ${eligible(c) ? '' : 'disabled'}></td>
+      <td><b>${esc(c.company || '')}</b>${c.mc ? ` <span class="mono muted" style="font-size:12.5px">MC ${esc(c.mc)}</span>` : ''}<div class="mono" style="font-size:13px">${esc(c.email)}</div>
+        ${why.length ? `<div style="font-size:12px;color:var(--good);font-weight:600">✓ ${esc(why.join(' · '))}</div>` : ''}</td>
       <td>${c.highway_pass ? '<span class="chip" style="background:color-mix(in srgb, var(--good) 14%, transparent);color:var(--good);border-color:transparent">✓ Pass</span>' : '<span class="chip bad">✗ Not on list</span>'}</td>
-      <td style="font-size:13px">${esc(c.sources.join(', '))}</td>
+      <td>${esc(c.hq_state || '—')}</td>
+      <td>${c.lanes.length ? c.lanes.slice(0, 6).map(x => `<span class="lanetag ${wantLanes.has(laneKey(x.o, x.d)) ? 'hit' : ''}" title="${x.n} bid${x.n === 1 ? '' : 's'}${x.won ? ', ' + x.won + ' won' : ''}">${esc(x.o)}→${esc(x.d)}${x.n > 1 ? ' ×' + x.n : ''}${x.won ? ' ★' : ''}</span>`).join(' ') + (c.lanes.length > 6 ? ` <span class="muted">+${c.lanes.length - 6}</span>` : '') : '<span class="muted">—</span>'}</td>
       <td class="num">${c.bid_count || 0}</td>
-      <td style="white-space:nowrap">${c.last_bid ? esc(fmtDateTime(c.last_bid)) : '—'}</td>
-      <td>${c.opted_out ? `<button class="btn sm" data-optin="${esc(c.email)}">Add back</button>` : `<button class="btn sm danger" data-optout="${esc(c.email)}">Remove</button>`}</td></tr>`).join('') + '</tbody>';
+      <td>${c.opted_out ? `<button class="btn sm" data-optin="${esc(c.email)}">Add back</button>` : `<button class="btn sm danger" data-optout="${esc(c.email)}">Remove</button>`}</td></tr>`;
+    }).join('') + '</tbody>';
+  const all = $('#pickAll');
+  if (all) { const el = shown.filter(eligible); all.checked = el.length && el.every(isPicked); all.onchange = () => { el.forEach(c => overrides.set(c.email, all.checked)); renderContacts(); }; }
 }
-$('#onlyPass').onchange = renderContacts;
+$('#contactTable').onchange = e => {
+  const x = e.target.closest('[data-pick]'); if (!x) return;
+  overrides.set(x.dataset.pick, x.checked); renderContacts();
+};
 $('#contactTable').onclick = async e => {
   const b = e.target.closest('button[data-optout],button[data-optin]'); if (!b) return;
   const email = b.dataset.optout || b.dataset.optin;
@@ -607,7 +699,7 @@ async function copyPlain(text, msg) {
 }
 $('#copyEmails').onclick = () => {
   const list = recipients().map(c => c.email);
-  if (!list.length) return toast('No addresses to copy');
+  if (!list.length) return toast('No addresses selected');
   copyPlain(list.join('; '), `Copied ${list.length} address${list.length === 1 ? '' : 'es'} — paste into BCC`);
 };
 $('#copySubject').onclick = () => digest && copyPlain(digest.subject, 'Subject copied');
@@ -657,10 +749,12 @@ $('#e_test').onclick = async () => {
   renderEmailStatus(await api('/api/admin/email'));
 };
 $('#sendDaily').onclick = async () => {
-  const n = recipients().length;
-  if (!confirm(`Email today's load list to ${n} carrier${n === 1 ? '' : 's'} (BCC) from your mailbox now?`)) return;
+  const list = recipients().map(c => c.email);
+  if (!pickLoads.size) return toast('Pick at least one load');
+  if (!list.length) return toast('No carriers selected');
+  if (!confirm(`Email ${pickLoads.size} load${pickLoads.size === 1 ? '' : 's'} to ${list.length} carrier${list.length === 1 ? '' : 's'} (BCC) from loads@ now?`)) return;
   try {
-    const r = await api('/api/admin/email/daily', { method: 'POST', body: { onlyPass: $('#onlyPass').checked } });
+    const r = await api('/api/admin/email/daily', { method: 'POST', body: { loadIds: [...pickLoads], emails: list } });
     toast(r.skipped ? r.skipped : `Sent to ${r.recipients} carrier${r.recipients === 1 ? '' : 's'}`);
   } catch (err) { toast(err.message); }
 };

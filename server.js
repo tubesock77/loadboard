@@ -522,9 +522,19 @@ function carrierContacts() {
   // emails from the Highway sheet (if it has an email column)
   db.prepare(`SELECT mc, name, email FROM qualified_carriers WHERE email IS NOT NULL AND email != ''`).all()
     .forEach(r => (r.email.match(EMAIL_RE) || []).forEach(e => add(e, { mc: r.mc, company: r.name, source: 'highway sheet', bid_count: 0 })));
-  const pass = new Set(db.prepare('SELECT mc FROM qualified_carriers').all().map(r => r.mc));
+  const pass = new Map(db.prepare('SELECT mc, hq_state, hq_zip FROM qualified_carriers').all().map(r => [r.mc, r]));
   const out = new Set(db.prepare('SELECT email FROM email_optout').all().map(r => r.email));
-  return [...byEmail.values()].map(c => ({ ...c, highway_pass: pass.has(c.mc), opted_out: out.has(c.email) }))
+  // lanes each carrier (MC) has bid on: pickup state -> delivery state
+  const lanes = new Map();
+  db.prepare(`SELECT b.mc, l.origin_state AS o, l.dest_state AS d, COUNT(*) AS n, MAX(b.updated_at) AS last,
+      SUM(CASE WHEN b.status = 'awarded' THEN 1 ELSE 0 END) AS won
+    FROM bids b JOIN loads l ON l.id = b.load_id WHERE l.origin_state IS NOT NULL AND l.dest_state IS NOT NULL
+    GROUP BY b.mc, l.origin_state, l.dest_state ORDER BY n DESC`).all()
+    .forEach(r => { if (!lanes.has(r.mc)) lanes.set(r.mc, []); lanes.get(r.mc).push({ o: r.o, d: r.d, n: r.n, won: r.won, last: r.last }); });
+  return [...byEmail.values()].map(c => {
+    const q = pass.get(c.mc);
+    return { ...c, highway_pass: !!q, hq_state: q ? q.hq_state || '' : '', opted_out: out.has(c.email), lanes: lanes.get(c.mc) || [] };
+  })
     .sort((a, b) => (b.highway_pass - a.highway_pass) || String(b.last_bid || '').localeCompare(String(a.last_bid || '')) || a.email.localeCompare(b.email));
 }
 
@@ -533,9 +543,10 @@ function baseUrl(req) {
   return process.env.PUBLIC_URL ? process.env.PUBLIC_URL.replace(/\/$/, '') : `${proto}://${req.headers.host}`;
 }
 
-function buildDigest(base) {
+function buildDigest(base, loadIds) {
   const cfg = publicConfig();
-  const loads = db.prepare(`SELECT * FROM loads WHERE status = 'open' ORDER BY pickup_date IS NULL, pickup_date, id`).all().filter(biddingOpen);
+  const pick = Array.isArray(loadIds) && loadIds.length ? new Set(loadIds.map(Number)) : null;
+  const loads = db.prepare(`SELECT * FROM loads WHERE status = 'open' ORDER BY pickup_date IS NULL, pickup_date, id`).all().filter(biddingOpen).filter(l => !pick || pick.has(l.id));
   const h = v => (v == null ? '' : String(v).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])));
   const tz = process.env.TIMEZONE || 'America/Denver';
   const day = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', timeZone: tz });
@@ -656,10 +667,11 @@ function emailsAfterAward(L, winner) {
   }
 }
 
-async function sendDailyEmail(base, onlyPass) {
-  const d = buildDigest(base || siteBase());
+async function sendDailyEmail(base, onlyPass, loadIds, emails) {
+  const d = buildDigest(base || siteBase(), loadIds);
   if (!d.count) return { sent: 0, recipients: 0, skipped: 'No open loads to send.' };
-  const list = carrierContacts().filter(c => !c.opted_out && (!(onlyPass ?? on('daily_only_pass')) || c.highway_pass)).map(c => c.email);
+  let list = carrierContacts().filter(c => !c.opted_out && (!(onlyPass ?? on('daily_only_pass')) || c.highway_pass)).map(c => c.email);
+  if (Array.isArray(emails)) { const want = new Set(emails.map(e => String(e).toLowerCase())); list = carrierContacts().filter(c => !c.opted_out && want.has(c.email)).map(c => c.email); }
   if (!list.length) return { sent: 0, recipients: 0, skipped: 'No carrier email addresses to send to.' };
   let sent = 0;
   for (let i = 0; i < list.length; i += 50) { // 50 BCC per message keeps well inside Microsoft limits
@@ -832,8 +844,8 @@ async function handle(req, res) {
       } catch (e) { setSetting('email_last_error', `${new Date().toISOString()} test: ${e.message}`); return fail(res, 400, e.message); }
     }
     if (m === 'POST' && p === '/api/admin/email/daily') {
-      const { onlyPass } = await readBody(req, 1000);
-      try { return send(res, 200, await sendDailyEmail(baseUrl(req), typeof onlyPass === 'boolean' ? onlyPass : undefined)); }
+      const { onlyPass, loadIds, emails } = await readBody(req, 200000);
+      try { return send(res, 200, await sendDailyEmail(baseUrl(req), typeof onlyPass === 'boolean' ? onlyPass : undefined, loadIds, emails)); }
       catch (e) { setSetting('email_last_error', `${new Date().toISOString()} daily list: ${e.message}`); return fail(res, 400, e.message); }
     }
     if (m === 'POST' && p === '/api/admin/smartsheet/run') { try { await syncSmartsheet(); } catch (_) { /* saved in status */ } return send(res, 200, smartsheetStatus()); }
@@ -930,7 +942,13 @@ async function handle(req, res) {
       else db.prepare('DELETE FROM email_optout WHERE email = ?').run(e);
       return send(res, 200, { ok: true });
     }
-    if (m === 'GET' && p === '/api/admin/digest') return send(res, 200, buildDigest(baseUrl(req)));
+    if (m === 'GET' && p === '/api/admin/digest') {
+      const ids = (url.searchParams.get('ids') || '').split(',').filter(Boolean);
+      const d = buildDigest(baseUrl(req), ids);
+      d.loads = db.prepare(`SELECT id, public_id, ref, origin_city, origin_state, dest_city, dest_state, pickup_date, equipment FROM loads WHERE status = 'open' ORDER BY pickup_date IS NULL, pickup_date, id`).all()
+        .filter(l => biddingOpen(db.prepare('SELECT * FROM loads WHERE id = ?').get(l.id)));
+      return send(res, 200, d);
+    }
 
     // carriers / settings
     if (m === 'GET' && p === '/api/admin/carriers') return send(res, 200, qualify.status());

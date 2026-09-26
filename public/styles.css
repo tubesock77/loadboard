@@ -243,3 +243,19 @@ legend { font-family: var(--display); font-weight: 700; font-size: 16px; text-tr
 @media (max-width: 600px) { .mybid { grid-template-columns: 1fr; } .mybid .btn { width: 100%; } }
 
 .req { color: var(--bad); margin-left: 2px; font-weight: 700; }
+.notyou { font-size: 14px; color: var(--muted); display: flex; gap: 6px; flex-wrap: wrap; align-items: baseline; }
+.linkbtn { background: none; border: 0; padding: 0; color: var(--sign); font: 600 14px var(--body); text-decoration: underline; cursor: pointer; }
+
+/* targeted daily email */
+.pickgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; }
+.pick { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; font-weight: 400; margin: 0; cursor: pointer; font-size: 14px; }
+.pick input, .opt input, .targetbar input { width: auto; margin-top: 3px; }
+.targetbar { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; margin: 6px 0; }
+.opt { display: flex; gap: 6px; align-items: center; font-weight: 500; font-size: 14px; margin: 0; }
+.lanechips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; }
+.lanechip { font: 600 13px var(--mono); border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 999px; padding: 4px 10px; cursor: pointer; }
+.lanechip span { color: var(--muted); font-weight: 500; }
+.lanechip.on { background: var(--sign); border-color: var(--sign); color: var(--sign-ink); }
+.lanechip.on span { color: inherit; opacity: .8; }
+.lanetag { display: inline-block; font: 600 12px var(--mono); padding: 2px 7px; border-radius: 5px; background: var(--surface-2); border: 1px solid var(--line); margin: 1px 0; white-space: nowrap; }
+.lanetag.hit { background: color-mix(in srgb, var(--good) 14%, transparent); border-color: transparent; color: var(--good); }

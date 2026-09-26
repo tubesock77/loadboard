@@ -139,6 +139,7 @@ function renderBidbox() {
   box.innerHTML = top + `<div class="bidbox-body">
     <h2>Bid on this load</h2>
     ${myState ? statusLine(myState) : mine ? `<div class="notice warn">You bid ${esc(money(mine.amount))} on ${esc(fmtDateTime(mine.at))}. Submitting again replaces your bid.</div>` : ''}
+    ${(c.mc || c.company || c.contact_name) ? `<div class="notyou">Filled in for <b>${esc(c.company || c.contact_name || 'MC ' + c.mc)}</b> <button type="button" class="linkbtn" id="notYou">Not you? Clear</button></div>` : ''}
     <form id="bform" class="stack" novalidate>
       <div class="field"><label for="amount">All-in rate<span class="req" aria-hidden="true">*</span> <span class="hint">(linehaul + fuel, USD)</span></label>
         <div class="money"><input id="amount" inputmode="decimal" autocomplete="off" placeholder="0" value="${myState && myState.state === 'outbid' && myState.next_max ? esc(myState.next_max) : mine ? esc(mine.amount) : ''}" required></div>
@@ -175,6 +176,18 @@ function renderBidbox() {
   $('#mc').addEventListener('input', () => { clearTimeout(lookupTimer); lookupTimer = setTimeout(lookup, 400); });
   $('#mc').addEventListener('blur', lookup);
   $('#company').addEventListener('input', () => { autoName = ''; });
+  const ny = $('#notYou');
+  if (ny) ny.onclick = () => {
+    if (!confirm('Clear the saved carrier info on this device? This also clears the bids saved on this device (My bids).')) return;
+    try {
+      localStorage.removeItem('carrier'); localStorage.removeItem('bidTokens');
+      Object.keys(localStorage).filter(k => k.startsWith('bid:')).forEach(k => localStorage.removeItem(k));
+    } catch (_) { /* storage blocked */ }
+    myState = null;
+    renderBidbox();
+    toast('Cleared. Enter your info below.');
+    const m = $('#mc'); if (m) m.focus();
+  };
   $('#bform').onsubmit = async e => {
     e.preventDefault();
     const body = { mc: $('#mc').value, amount: $('#amount').value, company: $('#company').value, contact_name: $('#cname').value,
