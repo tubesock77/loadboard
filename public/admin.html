@@ -364,29 +364,26 @@ function renderLoads() {
     <div class="stat"><b>${loads.reduce((s, l) => s + (l.status === 'open' ? l.bid_count : 0), 0)}</b><span>Bids on open loads</span></div>
     <div class="stat"><b>${loads.filter(l => l.status === 'awarded').length}</b><span>Awarded</span></div>`;
   if (!list.length) { $('#loadTable').innerHTML = `<tbody><tr><td class="empty">${loads.length ? 'No loads match.' : 'No loads yet. Click <b>+ New load</b> or <b>Import loads</b> to post your first one.'}</td></tr></tbody>`; return; }
-  $('#loadTable').innerHTML = `<thead><tr><th>Status</th><th>Lane</th><th>Pickup</th><th>Equipment</th><th class="num">Miles</th><th class="num" title="Estimated carrier cost incl. deadhead, and the DAT market all-in for this equipment">Break-even<div style="font-weight:500;text-transform:none;letter-spacing:0">/ market</div></th><th class="num">Bids</th><th class="num">Low bid</th><th class="num">Target</th><th>Bids due</th><th>Actions</th></tr></thead>
+  $('#loadTable').innerHTML = `<thead><tr><th>Lane</th><th>Pickup</th><th class="num" title="Loaded miles · estimated break-even (incl. deadhead) · DAT market">Miles · cost</th><th class="num">Low bid</th><th>Due</th><th></th></tr></thead>
   <tbody>${list.map(l => {
-    const tl = timeLeft(l.bid_deadline);
     const st = l.status === 'open' && !l.bidding_open ? 'closed' : l.status;
     const stLabel = l.status === 'open' && !l.bidding_open ? 'Expired' : l.status;
     const geoNote = l.geo_status === 'failed' ? ' <span class="chip bad" title="' + esc(l.geo_error || 'Address not found — check city/state/ZIP') + '">no map</span>' : l.geo_status === 'pending' ? ' <span class="chip">mapping…</span>' : '';
     const overTarget = l.target_rate && l.low_bid && l.low_bid > l.target_rate;
+    const src = l.source === 'sheet' ? ' <span class="chip" title="Managed by your Google Sheet">sheet</span>' : l.source === 'smartsheet' ? ' <span class="chip" title="Managed by Smartsheet LOAD BOARD">SS</span>' : '';
     return `<tr>
-      <td><span class="status ${st}">${esc(stLabel)}</span></td>
-      <td><div class="lane">${esc(place(l.origin_city, l.origin_state, l.origin_zip))} <span class="arrow">→</span> ${esc(place(l.dest_city, l.dest_state, l.dest_zip))}</div>
-        <div class="muted mono" style="font-size:12.5px">${l.ref ? '#' + esc(l.ref) + ' · ' : ''}${esc(l.public_id)}${l.source === 'sheet' ? ' <span class="chip" title="Managed by your Google Sheet">sheet</span>' : l.source === 'smartsheet' ? ' <span class="chip" title="Managed by Smartsheet LOAD BOARD">smartsheet</span>' : ''}${l.customer ? ' · ' + esc(l.customer) : ''}${geoNote}</div></td>
-      <td style="white-space:nowrap">${esc(fmtDate(l.pickup_date))}</td>
-      <td>${esc(l.equipment || '')}</td>
-      <td class="num">${l.miles ? Number(l.miles).toLocaleString() : '—'}</td>
-      <td class="num">${l.cost && l.cost.breakeven ? `<span class="mono">${esc(money(l.cost.breakeven))}</span><div class="muted" style="font-size:12px">mkt ${esc(money(l.cost.market))}</div>` : '—'}</td>
-      <td class="num">${l.bid_count}${l.bid_count ? `<div style="font-size:12px;color:${l.pass_count ? 'var(--good)' : 'var(--muted)'}">${l.pass_count} pass</div>` : ''}</td>
-      <td class="num" style="${overTarget ? 'color:var(--bad)' : ''}">${l.bid_count ? esc(money(l.low_bid)) : '—'}<div class="muted" style="font-size:12px">${esc(perMile(l.low_bid, l.miles))}</div>${l.bid_count ? costChip(l.low_tag, true) : ''}</td>
-      <td class="num">${l.target_rate ? esc(money(l.target_rate)) : '—'}</td>
-      <td style="white-space:nowrap" class="${tl && tl.urgent ? '' : 'muted'}">${l.bid_deadline ? esc(fmtDateTime(l.bid_deadline)) : '—'}</td>
-      <td><div class="actions" style="flex-wrap:nowrap">
+      <td class="lanecell"><div class="lane">${esc(place(l.origin_city, l.origin_state, l.origin_zip))} <span class="arrow">→</span> ${esc(place(l.dest_city, l.dest_state, l.dest_zip))}</div>
+        <div class="meta"><span class="status ${st}">${esc(stLabel)}</span> <span class="mono">${l.ref ? '#' + esc(l.ref) : esc(l.public_id)}</span>${src}${l.customer ? ' · ' + esc(l.customer) : ''}${geoNote}</div></td>
+      <td style="white-space:nowrap">${esc(fmtDate(l.pickup_date))}<div class="muted sm">${esc(l.equipment || '')}</div></td>
+      <td class="num">${l.miles ? Number(l.miles).toLocaleString() + ' mi' : '—'}${l.cost && l.cost.breakeven ? `<div class="sm">BE ${esc(money(l.cost.breakeven))}</div><div class="muted sm">mkt ${esc(money(l.cost.market))}</div>` : ''}</td>
+      <td class="num">${l.bid_count ? `<b style="${overTarget ? 'color:var(--bad)' : ''}">${esc(money(l.low_bid))}</b>` : '—'}
+        <div class="muted sm">${l.bid_count} bid${l.bid_count === 1 ? '' : 's'}${l.bid_count ? ` · <span style="color:${l.pass_count ? 'var(--good)' : 'inherit'}">${l.pass_count} pass</span>` : ''}</div>
+        ${l.target_rate ? `<div class="muted sm">target ${esc(money(l.target_rate))}</div>` : ''}${l.bid_count ? costChip(l.low_tag, true) : ''}</td>
+      <td class="muted sm" style="white-space:nowrap">${l.bid_deadline ? esc(fmtDateTime(l.bid_deadline)).replace(', ', ',<br>') : '—'}</td>
+      <td><div class="actions" style="flex-wrap:nowrap;gap:6px">
         <button class="btn sm primary" data-act="bids" data-id="${l.id}">Bids${l.bid_count ? ' (' + l.bid_count + ')' : ''}</button>
         <button class="btn sm" data-act="edit" data-id="${l.id}">Edit</button>
-        <button class="btn sm" data-act="link" data-id="${l.id}">Link</button>
+        <button class="btn sm" data-act="link" data-id="${l.id}" title="Copy carrier link">Link</button>
       </div></td></tr>`;
   }).join('')}</tbody>`;
 }
