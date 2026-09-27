@@ -13,7 +13,7 @@
 <header class="signbar">
   <div class="wrap">
     <a class="brand" href="/">
-      <span class="brand-mark" id="mark"></span>
+      <span class="brand-logo"><img src="/static/logo.png" alt="Brock Transportation LLC" width="138" height="46"></span>
       <span><span class="brand-name" data-company>Load Board</span><div class="brand-sub" data-tagline></div></span>
     </a>
     <nav><a href="/my-bids">My bids</a><a href="/">All loads</a></nav>
@@ -28,7 +28,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="/static/common.js"></script>
 <script>
-$('#mark').innerHTML = TRUCK_ICON;
+
 const pid = location.pathname.split('/').filter(Boolean)[1];
 let L0 = null, cfg = {}, myState = null;
 

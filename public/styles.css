@@ -51,7 +51,10 @@ h1, h2, h3 { font-family: var(--display); font-weight: 700; line-height: 1.1; ma
 @media (max-width: 480px) { .wrap { padding-inline: 16px; } }
 
 /* sign-style header */
-.signbar { background: var(--sign); color: var(--sign-ink); border-bottom: 4px solid var(--sign-strong); }
+.signbar { background: #FFFFFF; color: #141B27; border-bottom: 4px solid #1D4F9E; box-shadow: 0 1px 3px rgb(20 27 39 / .08); }
+.signbar .brand-name { color: #1D4F9E; }
+.signbar .brand-sub { color: #586478; opacity: 1; }
+.signbar nav a, .signbar nav button { color: #1D4F9E !important; }
 .signbar .wrap { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-block: 14px; flex-wrap: wrap; }
 .brand { display: flex; align-items: center; gap: 12px; text-decoration: none; color: inherit; }
 .brand-mark { width: 38px; height: 38px; border: 2.5px solid currentColor; border-radius: 7px; display: grid; place-items: center; flex: none; }
@@ -259,3 +262,6 @@ legend { font-family: var(--display); font-weight: 700; font-size: 16px; text-tr
 .lanechip.on span { color: inherit; opacity: .8; }
 .lanetag { display: inline-block; font: 600 12px var(--mono); padding: 2px 7px; border-radius: 5px; background: var(--surface-2); border: 1px solid var(--line); margin: 1px 0; white-space: nowrap; }
 .lanetag.hit { background: color-mix(in srgb, var(--good) 14%, transparent); border-color: transparent; color: var(--good); }
+.brand-logo { display: block; flex: none; padding-right: 14px; border-right: 1.5px solid #D6DCE6; }
+.brand-logo img { display: block; height: 46px; width: auto; }
+@media (max-width: 560px) { .brand-logo img { height: 36px; } .brand-logo { padding-right: 10px; } .brand-name { font-size: 18px; } }

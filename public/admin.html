@@ -13,7 +13,7 @@
 <header class="signbar">
   <div class="wrap">
     <a class="brand" href="/admin">
-      <span class="brand-mark" id="mark"></span>
+      <span class="brand-logo"><img src="/static/logo.png" alt="Brock Transportation LLC" width="138" height="46"></span>
       <span><span class="brand-name"><span data-company>Load Board</span> · Admin</span><div class="brand-sub">Post loads, review bids, award carriers</div></span>
     </a>
     <nav id="topnav" hidden><a href="/" target="_blank" rel="noopener">View carrier board ↗</a><button type="button" id="logout">Sign out</button></nav>
@@ -292,7 +292,7 @@
 
 <script src="/static/common.js"></script>
 <script>
-$('#mark').innerHTML = TRUCK_ICON;
+
 let loads = [], settings = {};
 const FIELDS = ['ref','status','origin_city','origin_state','origin_zip','dest_city','dest_state','dest_zip','pickup_date','pickup_window','delivery_date','delivery_window','equipment','temp','weight','pallets','commodity','stops','requirements','notes','target_rate','bid_deadline','contact_name','contact_phone','contact_email','miles'];
 const boardUrl = () => location.origin + '/';

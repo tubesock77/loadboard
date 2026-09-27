@@ -243,7 +243,7 @@ function bidStep() {
 function publicConfig() {
   return {
     company: getSetting('company_name', 'Brock LLC MC# 375005'),
-    tagline: getSetting('board_tagline', 'Truckload freight available for bid'),
+    tagline: getSetting('board_tagline', 'Independent Agent Loads'),
     contact_phone: getSetting('default_contact_phone', ''),
     contact_email: getSetting('default_contact_email', '') || process.env.EMAIL_FROM || '',
     bid_step: bidStep(),
@@ -558,7 +558,7 @@ function buildDigest(base, loadIds) {
   const rows = loads.map(l => {
     const url = `${base}/load/${l.public_id}`;
     const eq = [l.equipment, l.temp].filter(Boolean).join(' · ');
-    const det = [eq, l.weight ? Number(l.weight).toLocaleString() + ' lb' : '', l.miles ? Math.round(l.miles).toLocaleString() + ' mi' : ''].filter(Boolean).join(' · ');
+    const det = [eq, l.commodity, l.weight ? Number(l.weight).toLocaleString() + ' lb' : '', l.miles ? Math.round(l.miles).toLocaleString() + ' mi' : ''].filter(Boolean).join(' · ');
     return {
       text: `${place(l.origin_city, l.origin_state, l.origin_zip)} → ${place(l.dest_city, l.dest_state, l.dest_zip)}\n  Pick up ${fmtD(l.pickup_date)}${l.pickup_window ? ' ' + l.pickup_window : ''} · Deliver ${fmtD(l.delivery_date)}\n  ${det}${l.bid_deadline ? `\n  Bids due ${fmtDue(l.bid_deadline)}` : ''}\n  View & bid: ${url}`,
       html: `<tr>
@@ -610,7 +610,7 @@ function emailLayout(heading, body, cta) {
 function loadFacts(L) {
   const d = v => { if (!v) return ''; const t = new Date(String(v).slice(0, 10) + 'T12:00:00Z'); return isNaN(t) ? v : t.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' }); };
   const rows = [['Pick up', [d(L.pickup_date), L.pickup_window].filter(Boolean).join(' · ')], ['Deliver', [d(L.delivery_date), L.delivery_window].filter(Boolean).join(' · ')],
-    ['Equipment', [L.equipment, L.temp].filter(Boolean).join(' · ')], ['Weight', L.weight ? Number(L.weight).toLocaleString() + ' lb' : ''], ['Miles', L.miles ? Math.round(L.miles).toLocaleString() : '']]
+    ['Equipment', [L.equipment, L.temp].filter(Boolean).join(' · ')], ['Commodity', L.commodity || ''], ['Weight', L.weight ? Number(L.weight).toLocaleString() + ' lb' : ''], ['Miles', L.miles ? Math.round(L.miles).toLocaleString() : '']]
     .filter(r => r[1]);
   return `<table style="border-collapse:collapse;margin:10px 0;font:14px Arial,sans-serif">${rows.map(r => `<tr><td style="padding:3px 14px 3px 0;color:#586478">${r[0]}</td><td style="padding:3px 0"><b>${hx(r[1])}</b></td></tr>`).join('')}</table>`;
 }
