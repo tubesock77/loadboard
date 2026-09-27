@@ -608,7 +608,8 @@ function emailLayout(heading, body, cta) {
     <p style="font:12px Arial,sans-serif;color:#586478;margin:10px 2px">${[cfg.contact_phone, cfg.contact_email].filter(Boolean).map(hx).join(' · ')}</p></div>`;
 }
 function loadFacts(L) {
-  const rows = [['Pick up', [L.pickup_date, L.pickup_window].filter(Boolean).join(' ')], ['Deliver', [L.delivery_date, L.delivery_window].filter(Boolean).join(' ')],
+  const d = v => { if (!v) return ''; const t = new Date(String(v).slice(0, 10) + 'T12:00:00Z'); return isNaN(t) ? v : t.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' }); };
+  const rows = [['Pick up', [d(L.pickup_date), L.pickup_window].filter(Boolean).join(' · ')], ['Deliver', [d(L.delivery_date), L.delivery_window].filter(Boolean).join(' · ')],
     ['Equipment', [L.equipment, L.temp].filter(Boolean).join(' · ')], ['Weight', L.weight ? Number(L.weight).toLocaleString() + ' lb' : ''], ['Miles', L.miles ? Math.round(L.miles).toLocaleString() : '']]
     .filter(r => r[1]);
   return `<table style="border-collapse:collapse;margin:10px 0;font:14px Arial,sans-serif">${rows.map(r => `<tr><td style="padding:3px 14px 3px 0;color:#586478">${r[0]}</td><td style="padding:3px 0"><b>${hx(r[1])}</b></td></tr>`).join('')}</table>`;
@@ -624,7 +625,7 @@ function emailsAfterBid(L, bid, prevLow) {
     mailer.sendQuiet({ to: notifyTo(), replyTo: bid.email || undefined, subject: `New bid ${usd(bid.amount)} · ${loadSubject(L)}`,
       html: emailLayout(`New bid: ${usd(bid.amount)}${L.miles ? ` <span style="color:#586478;font-weight:400">(${usd(Math.round(bid.amount / L.miles * 100) / 100)}/mi)</span>` : ''}`,
         `<b>${hx(bid.company)}</b> · MC ${hx(bid.mc)} · ${pass ? '<span style="color:#17724A;font-weight:700">✓ Highway pass</span>' : '<span style="color:#B42318;font-weight:700">✗ Not on Highway list</span>'}<br>
-         ${hx(bid.contact_name)} · ${hx(bid.phone || '')} ${bid.email ? '· ' + hx(bid.email) : ''}
+         ${[bid.contact_name, bid.phone, bid.email].filter(Boolean).map(hx).join(' · ')}
          ${bid.notes ? `<br><i>“${hx(bid.notes)}”</i>` : ''}
          <p style="margin:12px 0 0"><b>${hx(laneOf(L))}</b>${L.ref ? ' · #' + hx(L.ref) : ''}<br>Current bid ${usd(st.low_bid)} · ${st.bid_count} bid${st.bid_count === 1 ? '' : 's'}${L.target_rate ? ` · target ${usd(L.target_rate)}` : ''}</p>
          ${bid.email ? '<p style="color:#586478;font-size:13px">Reply to this email to reach the carrier.</p>' : ''}`,
@@ -635,15 +636,15 @@ function emailsAfterBid(L, bid, prevLow) {
     mailer.sendQuiet({ to: bid.email, subject: loadSubject(L),
       html: emailLayout(`Bid received: ${usd(bid.amount)}`,
         `Thanks, ${hx(bid.contact_name || bid.company)}. We received your bid on <b>${hx(laneOf(L))}</b>${L.ref ? ' (#' + hx(L.ref) + ')' : ''}.${loadFacts(L)}
-         ${lead ? '<b style="color:#17724A">You are currently the lowest bid.</b> We\'ll email you if you\'re outbid.'
-          : `<b style="color:#B7780A">You are not the lowest bid.</b> The current bid is ${usd(st.low_bid)}.${step ? ` Bid ${usd(st.low_bid - step)} or less to take the lead.` : ''}`}
+         ${lead ? '<b style="color:#17724A">You\'re winning this load right now.</b> We\'ll email you if another carrier outbids you.'
+          : `<b style="color:#B7780A">You're not winning yet.</b> The current bid is ${usd(st.low_bid)}.${step ? ` Bid ${usd(st.low_bid - step)} or less to take the lead.` : ''}`}
          <p>Questions? Just reply to this email.</p>`, url ? { url, label: lead ? 'View load' : 'Rebid' } : null) }, 'bid confirmation');
   }
   // tell the carrier who just lost the lead
   if (on('em_outbid') && prevLow && prevLow.mc !== bid.mc && prevLow.email && bid.amount < prevLow.amount) {
     mailer.sendQuiet({ to: prevLow.email, subject: loadSubject(L),
       html: emailLayout(`You've been outbid`,
-        `Another carrier bid <b>${usd(bid.amount)}</b> on <b>${hx(laneOf(L))}</b>${L.ref ? ' (#' + hx(L.ref) + ')' : ''}. Your bid was ${usd(prevLow.amount)}.
+        `Another carrier took the lead with <b>${usd(bid.amount)}</b> on <b>${hx(laneOf(L))}</b>${L.ref ? ' (#' + hx(L.ref) + ')' : ''}. Your bid was ${usd(prevLow.amount)}.
          ${step ? `<p>To take the lead, bid <b>${usd(bid.amount - step)} or less</b>.</p>` : ''}${L.bid_deadline ? `<p style="color:#586478">Bids due ${hx(new Date(L.bid_deadline).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: TIMEZONE }))}</p>` : ''}`,
         url ? { url, label: 'Rebid now' } : null) }, 'outbid notice');
   }
@@ -941,6 +942,22 @@ async function handle(req, res) {
       if (out) db.prepare('INSERT OR IGNORE INTO email_optout (email) VALUES (?)').run(e);
       else db.prepare('DELETE FROM email_optout WHERE email = ?').run(e);
       return send(res, 200, { ok: true });
+    }
+    // Delete a carrier's contact: removes every bid placed with that email (awarded bids are kept) + any opt-out entry.
+    if (m === 'POST' && p === '/api/admin/contacts/delete') {
+      const { email } = await readBody(req, 5000);
+      const e = String(email || '').trim().toLowerCase();
+      if (!e) return fail(res, 400, 'Missing email');
+      const hits = db.prepare('SELECT id, status, email FROM bids').all()
+        .filter(b => (String(b.email || '').match(EMAIL_RE) || []).some(x => x.toLowerCase() === e));
+      const kept = hits.filter(b => b.status === 'awarded').length;
+      db.exec('BEGIN');
+      const del = db.prepare('DELETE FROM bids WHERE id = ?');
+      hits.filter(b => b.status !== 'awarded').forEach(b => del.run(b.id));
+      db.prepare('DELETE FROM email_optout WHERE email = ?').run(e);
+      db.exec('COMMIT');
+      const onSheet = db.prepare("SELECT 1 FROM qualified_carriers WHERE lower(email) LIKE ?").get('%' + e + '%');
+      return send(res, 200, { ok: true, deleted: hits.length - kept, kept_awarded: kept, on_highway_sheet: !!onSheet });
     }
     if (m === 'GET' && p === '/api/admin/digest') {
       const ids = (url.searchParams.get('ids') || '').split(',').filter(Boolean);

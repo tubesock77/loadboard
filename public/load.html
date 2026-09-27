@@ -74,8 +74,6 @@ function renderPage() {
       <dl class="panel specs" style="margin-bottom:0">${specs(l)}</dl>
       ${l.requirements ? `<div class="panel textblock"><h3>Requirements</h3><p>${esc(l.requirements)}</p></div>` : ''}
       ${l.notes ? `<div class="panel textblock"><h3>Notes</h3><p>${esc(l.notes)}</p></div>` : ''}
-      ${(l.contact_name || l.contact_phone || l.contact_email || cfg.contact_phone || cfg.contact_email) ? `<div class="panel textblock"><h3>Questions about this load</h3>
-        <p>${esc(l.contact_name || '')}${l.contact_name ? '\n' : ''}${esc(l.contact_phone || cfg.contact_phone || '')}${(l.contact_phone || cfg.contact_phone) ? '\n' : ''}${esc(l.contact_email || cfg.contact_email || '')}</p></div>` : ''}
     </section>
     <aside class="panel bidbox" id="bidbox"></aside>
   </div>`;
@@ -134,7 +132,7 @@ function renderBidbox() {
   const iAmLow = myState ? myState.state === 'leading' : (mine && l.bid_count && Number(mine.amount) <= Number(l.low_bid));
   const stepHint = !step ? ''
     : !l.bid_count ? `<div class="hint" style="margin-top:4px">Bids go in ${esc(money(step))} steps, like ${esc(money(1000))} or ${esc(money(1000 + step))}.</div>`
-    : iAmLow ? `<div class="hint" style="margin-top:4px">Yours is the current bid. To lower it, bid <b>${esc(money(l.low_bid - step))} or less</b> (${esc(money(step))} steps).</div>`
+    : iAmLow ? `<div class="hint" style="margin-top:4px">You're winning. To lower your bid, bid <b>${esc(money(l.low_bid - step))} or less</b> (${esc(money(step))} steps).</div>`
     : `<div class="hint" style="margin-top:4px;color:var(--ink)">To take the lead, bid <b>${esc(money(l.low_bid - step))} or less</b> (${esc(money(step))} steps).</div>`;
   box.innerHTML = top + `<div class="bidbox-body">
     <h2>Bid on this load</h2>
@@ -211,7 +209,7 @@ function renderBidbox() {
 
 function statusLine(s) {
   const k = BID_STATE[s.state] || BID_STATE.closed;
-  const extra = s.state === 'leading' ? `Your bid ${money(s.my_bid)} is the current bid.`
+  const extra = s.state === 'leading' ? `Your bid of ${money(s.my_bid)} is in the lead.`
     : s.state === 'outbid' ? `Your bid ${money(s.my_bid)} · current bid ${money(s.low_bid)}${s.next_max ? ` · rebid ${money(s.next_max)} or less` : ''}`
     : `Your bid ${money(s.my_bid)}`;
   return `<div class="mystatus ${k.cls}"><span class="dot"><span>${k.icon}</span></span><div>${esc(k.label)}<div style="font-weight:500;font-size:14px">${esc(extra)}</div></div></div>`;
@@ -224,8 +222,8 @@ function showBidPopup(r) {
     <div class="pop-amount">${esc(money(r.amount))}</div>
     <div class="muted">${esc(place(L0.origin_city, L0.origin_state))} → ${esc(place(L0.dest_city, L0.dest_state))}${L0.ref ? ' · #' + esc(L0.ref) : ''}</div>
     <div class="pop-status ${lead ? 'good' : 'bad'}">${lead
-      ? "<b>You're the lowest bid.</b><br>We'll contact you if you're awarded. Check <b>My bids</b> anytime to see if you've been outbid."
-      : `<b>You're not the lowest bid.</b><br>The current bid is ${esc(money(r.low_bid))}.${r.next_max ? ` Bid <b>${esc(money(r.next_max))} or less</b> to take the lead.` : ''}`}</div>
+      ? "<b>You're winning this load!</b><br>We'll contact you if you're awarded. Check <b>My bids</b> anytime to see if you've been outbid."
+      : `<b>You're not winning yet.</b><br>The current bid is ${esc(money(r.low_bid))}.${r.next_max ? ` Bid <b>${esc(money(r.next_max))} or less</b> to take the lead.` : ''}`}</div>
     <div class="pop-actions">
       ${lead ? '' : '<button class="btn primary" type="button" id="popRebid">Rebid now</button>'}
       <a class="btn ${lead ? 'primary' : ''}" href="/my-bids">See my bids</a>

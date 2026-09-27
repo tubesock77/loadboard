@@ -677,7 +677,7 @@ function renderContacts() {
       <td>${esc(c.hq_state || '—')}</td>
       <td>${c.lanes.length ? c.lanes.slice(0, 6).map(x => `<span class="lanetag ${wantLanes.has(laneKey(x.o, x.d)) ? 'hit' : ''}" title="${x.n} bid${x.n === 1 ? '' : 's'}${x.won ? ', ' + x.won + ' won' : ''}">${esc(x.o)}→${esc(x.d)}${x.n > 1 ? ' ×' + x.n : ''}${x.won ? ' ★' : ''}</span>`).join(' ') + (c.lanes.length > 6 ? ` <span class="muted">+${c.lanes.length - 6}</span>` : '') : '<span class="muted">—</span>'}</td>
       <td class="num">${c.bid_count || 0}</td>
-      <td>${c.opted_out ? `<button class="btn sm" data-optin="${esc(c.email)}">Add back</button>` : `<button class="btn sm danger" data-optout="${esc(c.email)}">Remove</button>`}</td></tr>`;
+      <td style="white-space:nowrap">${c.opted_out ? `<button class="btn sm" data-optin="${esc(c.email)}">Add back</button>` : `<button class="btn sm" data-optout="${esc(c.email)}" title="Stop emailing them (keeps their bids)">Remove</button>`}${(c.sources || []).includes('bid') ? ` <button class="btn sm danger" data-del="${esc(c.email)}" title="Delete this carrier and all their bids">Delete</button>` : ''}</td></tr>`;
     }).join('') + '</tbody>';
   const all = $('#pickAll');
   if (all) { const el = shown.filter(eligible); all.checked = el.length && el.every(isPicked); all.onchange = () => { el.forEach(c => overrides.set(c.email, all.checked)); renderContacts(); }; }
@@ -687,6 +687,17 @@ $('#contactTable').onchange = e => {
   overrides.set(x.dataset.pick, x.checked); renderContacts();
 };
 $('#contactTable').onclick = async e => {
+  const d = e.target.closest('button[data-del]');
+  if (d) {
+    const c = contacts.find(x => x.email === d.dataset.del) || {};
+    if (!confirm(`Delete ${c.company || d.dataset.del}${c.mc ? ' (MC ' + c.mc + ')' : ''}?\n\nThis removes all ${c.bid_count || 0} bid(s) placed with ${d.dataset.del} and takes them off this list. Awarded bids are kept. This can't be undone.`)) return;
+    const r = await api('/api/admin/contacts/delete', { method: 'POST', body: { email: d.dataset.del } });
+    contacts = await api('/api/admin/contacts');
+    renderContacts();
+    toast(`Deleted ${r.deleted} bid${r.deleted === 1 ? '' : 's'}` + (r.kept_awarded ? ` · kept ${r.kept_awarded} awarded` : '') + (r.on_highway_sheet ? ' · still in your Highway sheet — use Remove to stop emails' : ''));
+    refreshLoads();
+    return;
+  }
   const b = e.target.closest('button[data-optout],button[data-optin]'); if (!b) return;
   const email = b.dataset.optout || b.dataset.optin;
   await api('/api/admin/contacts/optout', { method: 'POST', body: { email, out: !!b.dataset.optout } });

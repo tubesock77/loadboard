@@ -92,7 +92,7 @@ const myBids = {
   },
 };
 const BID_STATE = {
-  leading: { label: "You're the lowest bid", cls: 'good', icon: '✓' },
+  leading: { label: "You're winning", cls: 'good', icon: '✓' },
   outbid: { label: "You've been outbid", cls: 'bad', icon: '!' },
   won: { label: 'Awarded to you', cls: 'good', icon: '★' },
   covered: { label: 'Load covered', cls: 'muted', icon: '–' },
