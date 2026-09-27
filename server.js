@@ -6,6 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { db, getSetting, setSetting, newPublicId } = require('./lib/db');
+const cost = require('./lib/cost');
 const qualify = require('./lib/qualify');
 const geo = require('./lib/geo');
 const { parseAny, rowsToObjects } = require('./lib/sheet');
@@ -149,8 +150,13 @@ function adminLoad(L) {
   const s = bidStats.get(L.id);
   const h = passStats.get(L.id);
   return { ...L, route_geojson: undefined, bid_count: s.bid_count, low_bid: s.low_bid, bidding_open: biddingOpen(L),
-    pass_count: h.pass_count, low_pass_bid: h.low_pass_bid };
+    pass_count: h.pass_count, low_pass_bid: h.low_pass_bid, ...costFields(L, s.low_bid, h.low_pass_bid) };
 }
+function costFields(L, low, lowPass, model) {
+  const est = cost.estimate(L, model);
+  return { cost: est, low_tag: s_tag(low, est), low_pass_tag: s_tag(lowPass, est) };
+}
+function s_tag(v, est) { return v ? cost.tag(v, est) : null; }
 
 function insertLoad(data) {
   const d = cleanLoad(data);
@@ -874,8 +880,26 @@ async function handle(req, res) {
       return send(res, 200, adminLoad(db.prepare('SELECT * FROM loads WHERE id = ?').get(id)));
     }
     if (m === 'GET' && (mm = p.match(/^\/api\/admin\/loads\/(\d+)\/bids$/))) {
+      const L = db.prepare('SELECT * FROM loads WHERE id = ?').get(Number(mm[1]));
+      const est = L ? cost.estimate(L) : null;
       return send(res, 200, db.prepare(`SELECT b.*, CASE WHEN q.mc IS NULL THEN 0 ELSE 1 END AS highway_pass, q.name AS highway_name
-        FROM bids b LEFT JOIN qualified_carriers q ON q.mc = b.mc WHERE b.load_id = ? ORDER BY b.amount ASC, b.created_at ASC`).all(Number(mm[1])));
+        FROM bids b LEFT JOIN qualified_carriers q ON q.mc = b.mc WHERE b.load_id = ? ORDER BY b.amount ASC, b.created_at ASC`).all(Number(mm[1]))
+        .map(b => ({ ...b, cost_tag: cost.tag(b.amount, est) })));
+    }
+    // per-load cost overrides (equipment type for the cost model, deadhead %)
+    if (m === 'PUT' && (mm = p.match(/^\/api\/admin\/loads\/(\d+)\/cost$/))) {
+      const id = Number(mm[1]);
+      const b = await readBody(req, 2000);
+      const eq = ['van', 'reefer', 'flatbed'].includes(b.equip) ? b.equip : null;
+      const dh = b.deadhead_pct === '' || b.deadhead_pct == null || !Number.isFinite(Number(b.deadhead_pct)) ? null : Math.min(200, Math.max(0, Number(b.deadhead_pct)));
+      db.prepare('UPDATE loads SET cost_equip = ?, deadhead_pct = ? WHERE id = ?').run(eq, dh, id);
+      const L = db.prepare('SELECT * FROM loads WHERE id = ?').get(id);
+      return L ? send(res, 200, adminLoad(L)) : fail(res, 404, 'Not found');
+    }
+    if (p === '/api/admin/cost-model') {
+      if (m === 'PUT') return send(res, 200, { model: cost.saveModel(await readBody(req, 20000)), regions: cost.REGIONS });
+      if (m === 'DELETE') return send(res, 200, { model: cost.resetModel(), regions: cost.REGIONS });
+      if (m === 'GET') return send(res, 200, { model: cost.getModel(), regions: cost.REGIONS, defaults: cost.DEFAULTS });
     }
     if (m === 'POST' && (mm = p.match(/^\/api\/admin\/bids\/(\d+)\/award$/))) {
       const bid = db.prepare('SELECT * FROM bids WHERE id = ?').get(Number(mm[1]));
