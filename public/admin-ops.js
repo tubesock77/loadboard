@@ -237,7 +237,7 @@ async function openFile(id) {
       <div><span>Load</span><b>${l.ref ? '#' + esc(l.ref) : esc(l.public_id)}</b><small>PU ${esc(fmtDate(l.pickup_date) || '—')}${l.pickup_window ? ' ' + esc(l.pickup_window) : ''} · DEL ${esc(fmtDate(l.delivery_date) || '—')}${l.delivery_window ? ' ' + esc(l.delivery_window) : ''}</small>
         <small>${esc([l.origin_name, l.origin_address].filter(Boolean).join(', '))}${l.dest_name || l.dest_address ? ' → ' + esc([l.dest_name, l.dest_address].filter(Boolean).join(', ')) : ''}</small></div>
       <div><span>Carrier</span>${w ? `<b><button class="linkbtn" data-cp="${esc(w.mc)}" style="font-size:inherit;text-decoration:none;color:inherit">${esc(w.company)}</button></b><small class="mono">MC ${esc(w.mc)}</small><small>${esc([w.contact_name, w.phone, w.email].filter(Boolean).join(' · '))}</small>` : '<b class="muted">Not awarded</b>'}</div>
-      <div><span>Rates</span><b class="mono">${w ? esc(money(w.amount)) : '—'}</b><small>carrier${l.miles && w ? ' · $' + (w.amount / l.miles).toFixed(2) + '/mi' : ''}</small>
+      <div><span>Rates</span><b class="mono">${w ? esc(money(w.amount)) : '—'}${w ? ` <button class="linkbtn sm" type="button" id="fl_rateEdit" style="font-family:var(--body)">edit</button>` : ''}</b><small>carrier${l.miles && w ? ' · $' + (w.amount / l.miles).toFixed(2) + '/mi' : ''}</small>
         ${margin != null ? `<small style="color:${margin >= 0 ? 'var(--good)' : 'var(--bad)'};font-weight:700">Margin ${margin >= 0 ? '+' : '−'}${esc(money(Math.abs(margin)))} (${Math.round(margin / l.customer_rate * 100)}%)</small>` : ''}</div>
     </div>
     <div class="grid g4">
@@ -285,6 +285,7 @@ async function openFile(id) {
     catch (err) { toast(err.message); }
   };
   $$('[data-cp]', b).forEach(x => x.onclick = () => openCarrier(x.dataset.cp));
+  const re = $('#fl_rateEdit'); if (re) re.onclick = () => editRate(w.id, w.amount, w.company, () => { openFile(id); afterFileChange(); });
 }
 function afterFileChange() { if (!$('[data-pane="tracking"]').hidden) loadTracking(); refreshLoads(); }
 
@@ -459,3 +460,50 @@ async function loadReports() {
     <div class="stat-row">${d.by_stage.map(s => `<div class="stat"><b>${s.n}</b><span>${esc(s.label)}</span></div>`).join('')}</div>
     <div class="stack">${tbl('By customer', d.by_customer, 'Customer')}${tbl('Top lanes', d.by_lane, 'Lane')}${tbl('Top carriers (covered loads)', d.by_carrier, 'Carrier')}</div>`;
 }
+
+// ---------- rates settled outside the site ----------
+async function editRate(bidId, current, company, done) {
+  const v = prompt(`Agreed rate for ${company} (all-in $).\nCurrently ${money(current)}:`, String(current));
+  if (v == null || !v.trim()) return;
+  const note = prompt('Optional note (e.g. "agreed on phone"):', '') || '';
+  try { await api(`/api/admin/bids/${bidId}/amount`, { method: 'PUT', body: { amount: v, note } }); toast('Rate updated'); done && done(); }
+  catch (e) { toast(e.message); }
+}
+let bookLoad = null;
+function openBookOff(l) {
+  bookLoad = l;
+  ['mc', 'amount', 'company', 'contact', 'phone', 'email', 'note'].forEach(k => $('#bk_' + k).value = '');
+  $('#bk_notify').checked = false; $('#bk_hw').textContent = ''; $('#bookMsg').innerHTML = '';
+  $('#bookLane').innerHTML = `<b>${esc(place(l.origin_city, l.origin_state))} → ${esc(place(l.dest_city, l.dest_state))}</b>${l.ref ? ' · #' + esc(l.ref) : ''}`;
+  $('#bookDlg').showModal(); $('#bk_mc').focus();
+}
+let bkTimer = null;
+$('#bk_mc').oninput = () => {
+  clearTimeout(bkTimer);
+  bkTimer = setTimeout(async () => {
+    const mc = $('#bk_mc').value.replace(/\D/g, ''); if (mc.length < 4) { $('#bk_hw').textContent = ''; return; }
+    try {
+      const r = await api('/api/carrier-name?mc=' + encodeURIComponent(mc));
+      $('#bk_hw').innerHTML = r.name ? `<span style="color:var(--good);font-weight:600">✓ On Highway list: ${esc(r.name)}</span>` : '<span style="color:var(--bad);font-weight:600">✗ Not on Highway list</span>';
+      if (r.name && !$('#bk_company').value) $('#bk_company').value = r.name;
+      // fill contact from an earlier bid by this MC
+      const prof = cps.find(c => c.mc === mc);
+      if (!prof) { const all = await api('/api/admin/carrier-profiles'); cps = all; }
+      const p = cps.find(c => c.mc === mc);
+      if (p) { if (!$('#bk_company').value) $('#bk_company').value = p.company || ''; const d = await api('/api/admin/carrier-profiles/' + mc); const c = d.contacts[0];
+        if (c) { if (!$('#bk_contact').value) $('#bk_contact').value = c.name || ''; if (!$('#bk_phone').value) $('#bk_phone').value = c.phone || ''; if (!$('#bk_email').value) $('#bk_email').value = c.email || ''; }
+        if (p.flag === 'dnu') $('#bk_hw').innerHTML += ' · <b style="color:var(--bad)">You marked this carrier Do not use</b>'; }
+    } catch (_) { /* ignore */ }
+  }, 350);
+};
+$('#bookForm').onsubmit = async e => {
+  e.preventDefault();
+  const l = bookLoad;
+  if (l.status === 'awarded' && !confirm('This load is already awarded. Switch the award to this carrier?')) return;
+  try {
+    await api(`/api/admin/loads/${l.id}/manual-award`, { method: 'POST', body: { mc: $('#bk_mc').value, amount: $('#bk_amount').value, company: $('#bk_company').value,
+      contact_name: $('#bk_contact').value, phone: $('#bk_phone').value, email: $('#bk_email').value, note: $('#bk_note').value, notify: $('#bk_notify').checked } });
+    $('#bookDlg').close(); toast('Load awarded — send the rate con from Aljex, then mark it in Tracking');
+    renderBids(l.id); refreshLoads();
+  } catch (err) { $('#bookMsg').innerHTML = `<div class="notice err">${esc(err.message)}</div>`; }
+};

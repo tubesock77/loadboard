@@ -377,6 +377,31 @@
   </div>
 </dialog>
 
+<!-- award to a carrier booked outside the site -->
+<dialog id="bookDlg" style="width:min(640px, calc(100vw - 24px))">
+  <form id="bookForm" method="dialog">
+    <div class="dlg-head"><h2>Booked outside the site</h2><button class="x" type="button" data-close aria-label="Close">×</button></div>
+    <div class="dlg-body">
+      <p class="help" style="margin:0" id="bookLane"></p>
+      <p class="help" style="margin:0">Use this when you settled with a carrier by phone or email. It records their rate and awards the load to them (if they already bid, their bid is updated).</p>
+      <div class="grid g2">
+        <div class="field"><label for="bk_mc">MC number <span class="req">*</span></label><input id="bk_mc" inputmode="numeric" required><span class="hint" id="bk_hw"></span></div>
+        <div class="field"><label for="bk_amount">Agreed rate $ (all-in) <span class="req">*</span></label><input id="bk_amount" inputmode="decimal" required></div>
+      </div>
+      <div class="field"><label for="bk_company">Company <span class="req">*</span></label><input id="bk_company" required></div>
+      <div class="grid g3">
+        <div class="field"><label for="bk_contact">Contact</label><input id="bk_contact"></div>
+        <div class="field"><label for="bk_phone">Phone</label><input id="bk_phone"></div>
+        <div class="field"><label for="bk_email">Email</label><input id="bk_email" type="email"></div>
+      </div>
+      <div class="field"><label for="bk_note">Note <span class="hint">(optional, private)</span></label><input id="bk_note" placeholder="Agreed on phone with dispatch"></div>
+      <label style="font-weight:500"><input type="checkbox" id="bk_notify" style="width:auto"> Email the carrier an award notice</label>
+      <div id="bookMsg"></div>
+    </div>
+    <div class="dlg-foot"><button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="submit">Award load</button></div>
+  </form>
+</dialog>
+
 <!-- load file (tracking) -->
 <dialog id="fileDlg" style="width:min(980px, calc(100vw - 24px))">
   <div class="dlg-head"><h2 id="fileTitle">Load</h2><button class="x" type="button" data-close aria-label="Close">×</button></div>
@@ -614,6 +639,7 @@ async function renderBids(id) {
     <div class="muted">${l.ref ? '#' + esc(l.ref) + ' · ' : ''}Pickup ${esc(fmtDate(l.pickup_date) || 'TBD')} · ${esc(l.equipment || '')} · ${l.miles ? Number(l.miles).toLocaleString() + ' mi' : ''}
       ${l.target_rate ? ` · Target <b class="mono">${esc(money(l.target_rate))}</b>` : ''}</div>
     <div class="actions">${l.status === 'awarded' || l.status === 'closed' ? `<button class="btn sm" id="reopen">Reopen for bids</button>` : ''}
+      <button class="btn sm" id="bookOff" title="You settled with a carrier by phone or email">+ Booked outside the site</button>
       <button class="btn sm" id="copyL">Copy carrier link</button></div></div>`;
   const cp = costPanel(l);
   if (!bids.length) { $('#bidsBody').innerHTML = head + cp + '<div class="panel empty">No bids yet. Send carriers the link to this load.</div>'; wire(l); return; }
@@ -631,6 +657,7 @@ async function renderBids(id) {
       <td class="num">${b.cost_tag ? `<span class="mono" style="font-size:13.5px">${b.cost_tag.margin < 0 ? '−' : '+'}${esc(money(Math.abs(b.cost_tag.margin)))}</span><div class="muted" style="font-size:12px">${b.cost_tag.pct}%</div>${costChip(b.cost_tag)}` : '—'}</td>
       <td><div class="actions" style="gap:6px;justify-content:flex-end">${b.status === 'awarded' ? '<span class="status awarded">Awarded</span>'
         : l.status === 'awarded' ? '' : `<button class="btn sm primary" data-award="${b.id}" data-pass="${b.highway_pass}" data-flag="${esc(b.carrier_flag || '')}">Award</button><button class="btn sm" data-counter="${b.id}" data-amt="${b.amount}" data-email="${b.email ? 1 : 0}" title="Email this carrier a counter offer">Counter</button>`}
+        <button class="btn sm" data-editamt="${b.id}" data-amt="${b.amount}" data-co="${esc(b.company)}" title="Change the rate (settled outside the site)">✎ Rate</button>
         <button class="btn sm danger" data-delbid="${b.id}" title="Remove bid">×</button></div></td></tr>`;
     }).join('')}</tbody></table></div>`;
   wire(l);
@@ -680,6 +707,8 @@ function wire(l) {
   });
   $$('#bidsBody [data-cp]').forEach(b => b.onclick = () => openCarrier(b.dataset.cp));
   $$('[data-counter]').forEach(b => b.onclick = () => sendCounter(b, l));
+  $$('[data-editamt]').forEach(b => b.onclick = () => editRate(b.dataset.editamt, Number(b.dataset.amt), b.dataset.co, () => { renderBids(l.id); refreshLoads(); }));
+  const bo = $('#bookOff'); if (bo) bo.onclick = () => openBookOff(l);
   $$('[data-delbid]').forEach(b => b.onclick = async () => {
     if (!confirm('Remove this bid?')) return;
     await api(`/api/admin/bids/${b.dataset.delbid}`, { method: 'DELETE' }); renderBids(l.id); refreshLoads();

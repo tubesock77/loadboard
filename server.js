@@ -474,7 +474,7 @@ function startDailyScheduler() {
 }
 
 const OPS = require('./lib/ops')({ send, fail, readBody, adminLoad, insertLoad, mailer, emailLayout, siteBase, notifyTo, loadSubject, laneOf, usd, hx,
-  TIMEZONE, bidStats, loadFacts, serveFile });
+  TIMEZONE, bidStats, loadFacts, serveFile, emailsAfterAward, normalizeMC: qualify.normalizeMC });
 
 // ---------- router ----------
 async function handle(req, res) {
