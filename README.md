@@ -19,15 +19,19 @@ There are no third-party packages. It needs only Node.js 22.13 or newer and uses
 ## What you can do in admin
 
 - **+ New load**: enter the lane, dates and windows, the bid deadline, equipment and freight details, requirements and notes. You can also add a **private target rate** that carriers never see, and contact info. Miles and the map fill in automatically from the city, state and ZIP.
-- **Sync / Import → Smartsheet (LOAD BOARD sheet)**: check **POST** on a row to put it live; uncheck it or delete the row to close it (bids kept). The site re-reads the sheet every 3 minutes and writes **BOARD STATUS, BIDS, LOW BID, HWY PASS BIDS, AWARDED CARRIER / MC / RATE, LOAD LINK, LAST SYNC** back to the row, within seconds of a new bid or award. Needs `SMARTSHEET_TOKEN` in Render. Awarded loads stay awarded even if POST is unchecked.
-- **Sync / Import → Google Sheet**: paste a sheet link (shared "Anyone with the link → Viewer"). Every few minutes the site reads it: a new row posts a load, an edited row updates it, a deleted row closes it (bids are kept). Every row needs a **Load #**; column names match the template. Loads added by hand in admin aren't touched. Put an optional `status` column (open / draft / closed) to control a row without deleting it.
+- **Faster posting**: start a load from a **saved lane**, pick the shipper and receiver from the **address book**, or **paste** a tender email and let the form fill in cities, dates, weight, pallets, equipment, temp, load # and rate. **Save as lane** keeps any load for reuse. A saved lane can **post itself** on a schedule (days, time, pickup offset, bids-due hours). Shipper/receiver names and addresses, customer, customer rate and Aljex Pro # are private.
+- **Bulk actions**: tick loads in the list to close bidding, move to draft, set a new bids-due time, or delete.
+- **Tracking** (after award): Awarded → Rate con sent (Aljex) → Dispatched → Picked up → Delivered → Invoiced, with dates. Each load has check calls and notes, documents (BOL, POD, signed rate con — up to 12 MB each, stored on the disk), Aljex Pro #, customer rate and margin. Rate confirmations are sent from Aljex, not from this site.
+- **Carriers**: everyone who has bid, with lanes, bids, wins, Highway status, contacts and history. Flag carriers **★ Preferred** or **Do not use** and keep private notes. "Do not use" shows in the Bids window and warns you before an award.
+- **Counter offers**: in the Bids window, **Counter** emails the carrier a link where they accept or decline. Accepting updates their bid; you get an email either way, then award as usual.
+- **Reports**: loads posted and covered, bids per load, revenue, carrier pay and margin, by customer, lane and carrier, for any date range.
 - **Import loads (one time)**: upload a CSV or XLSX with many loads at once. Click **Download template** in that window for the column names. Common names also work, such as "Pickup City" or "Ship Date".
 - **Bids**: bids are listed low to high, each marked **✓ Pass** or **✗ Not on list** for Highway, with $/mi and each bid's difference from your target. **Award** marks the load as covered and closes bidding. **Reopen for bids** undoes that.
 - **Link**: copies the carrier link for a load. **Copy board link** copies the link to the whole board.
 - **Edit → Duplicate**: copies a load as a draft, which is useful for repeat lanes. **Status** can be Open, Draft (hidden) or Closed.
 - **Export all bids**: downloads a CSV of every bid.
-- **Daily email**: a ready-to-send email of every open load with "View & bid" links, plus your carrier email list (collected from bids and any Email column in your Highway sheet). Filter to Highway-pass carriers, copy the addresses into BCC, and remove anyone who opts out.
-- **Approved carriers**: paste your Google Sheet or Excel link, or upload a file. See below.
+- **Daily email**: the automatic daily list can target only carriers who fit that day's loads (lane history, pickup/delivery state, home state; skips Do not use). A ready-to-send email of every open load with "View & bid" links, plus your carrier email list (collected from bids and any Email column in your Highway sheet). Filter to Highway-pass carriers, copy the addresses into BCC, and remove anyone who opts out.
+- **Highway list**: paste your Google Sheet or Excel link, or upload a file. See below.
 - **Settings → Email**: bid alerts to you (reply goes to the carrier), carrier bid confirmations, outbid notices, award notices, optional "load covered" notices, and an automatic daily load list (time and days, Denver time). **Send test email** checks the connection. Every email about a load uses the same subject ("Load # · lane") so Outlook keeps it in one conversation.
 - **Settings**: company name, tagline, default contact info and the bid terms shown to carriers.
 
@@ -35,7 +39,7 @@ There are no third-party packages. It needs only Node.js 22.13 or newer and uses
 
 Export or copy your Highway-approved carriers into a Google Sheet or Excel file with a column of MC numbers. The site finds a column headed `MC`, `MC Number`, `MC #` or `Docket` on its own. If your column has a different name, enter it in the admin page. `MC123456`, `MC-123456` and `123456` all match.
 
-**Google Sheets:** Share → General access → **Anyone with the link → Viewer**. Paste the normal sheet link in **Admin → Approved carriers**. If the list is on a tab other than the first one, open that tab before you copy the link so it includes `#gid=`.
+**Google Sheets:** Share → General access → **Anyone with the link → Viewer**. Paste the normal sheet link in **Admin → Highway list**. If the list is on a tab other than the first one, open that tab before you copy the link so it includes `#gid=`.
 
 **Excel (OneDrive/SharePoint):** Share → **Anyone with the link can view**, then paste the link. If your IT blocks anonymous links, use **Upload a file** instead.
 
@@ -79,11 +83,7 @@ Any host that runs Node and has a **persistent disk** will work. Your loads and 
 | `SESSION_SECRET` | no | Signs admin logins. If you leave it out, one is generated and saved in the database. |
 | `CARRIER_REFRESH_MINUTES` | no | How often the Highway sheet is re-read. Defaults to 30. |
 | `GEOCODER_USER_AGENT` | no | Identifies your site to the free map lookup. Include your email, e.g. `BrockLoads/1.0 (codyp@sweetcandy.com)`. |
-| `LOAD_SYNC_MINUTES` | no | How often the load sheet is re-read. Defaults to 5. |
 | `TIMEZONE` | no | Time zone for bid deadlines typed in sheets/imports. Defaults to `America/Denver`. |
-| `SMARTSHEET_TOKEN` | for Smartsheet | Smartsheet API token (Account → Apps & Integrations → API Access). |
-| `SMARTSHEET_SHEET_ID` | no | Defaults to the LOAD BOARD sheet (7699725211094916); can also be changed in admin. |
-| `SMARTSHEET_SYNC_MINUTES` | no | How often Smartsheet is read. Defaults to 3. |
 | `MS_TENANT_ID`, `MS_CLIENT_ID`, `MS_CLIENT_SECRET` | for email | Entra app "LOADBOARD". Its Mail.Send permission is limited in Exchange to the EMAIL_FROM mailbox only (RBAC for Applications, scope "Load Board mailbox"). |
 | `EMAIL_FROM` | for email | `loads@brocktrans.com`. All emails are sent as this mailbox and saved in its Sent Items. |
 | `PUBLIC_URL` | no | The address used in daily-email links, e.g. `https://loads.yourdomain.com`. Defaults to the address you're using. |
@@ -103,6 +103,10 @@ Copy `data/loadboard.db` now and then. On Render, use the Shell tab or a schedul
 server.js          web server, API, admin login
 lib/db.js          database tables
 lib/qualify.js     Highway list: reads Google Sheet / Excel / upload, checks MC numbers
+lib/cost.js        break-even / market / margin estimate
+lib/ops.js         address book, saved lanes + repeat posting, tracking, documents, carrier profiles, counters, reports
+public/admin-ops.js  admin screens for the above
+public/counter.html  carrier's accept/decline page for a counter offer
 lib/sheet.js       CSV + XLSX reader
 lib/geo.js         address → map point, route & miles
 public/index.html  carrier load board

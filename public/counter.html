@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Counter offer · {company}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<header class="signbar">
+  <div class="wrap">
+    <a class="brand" href="/">
+      <span class="brand-logo"><img src="/static/logo.png" alt="Brock Transportation LLC" width="138" height="46"></span>
+      <span><span class="brand-name" data-company>Load Board</span><div class="brand-sub" data-tagline></div></span>
+    </a>
+    <nav><a href="/">All loads</a></nav>
+  </div>
+</header>
+
+<main class="wrap" style="max-width:640px;padding-block:24px">
+  <div class="panel card stack" id="box"><div class="muted">Loading…</div></div>
+</main>
+
+<script src="/static/common.js"></script>
+<script>
+const token = location.pathname.split('/').filter(Boolean)[1];
+function render(c) {
+  const L = c.load;
+  let foot = '';
+  if (c.status === 'sent' && !L.awarded) foot = `<div class="actions" style="gap:10px"><button class="btn primary" id="yes" type="button" style="font-size:17px;padding:12px 22px">Accept ${esc(money(c.amount))}</button><button class="btn" id="no" type="button">Decline</button></div>`;
+  else if (c.status === 'accepted') foot = `<div class="notice ok"><b>You accepted ${esc(money(c.amount))}.</b> Your bid is updated. We'll confirm the award and send the rate confirmation separately.</div>`;
+  else if (c.status === 'declined') foot = `<div class="notice">You declined this offer. Your bid of ${esc(money(c.your_bid))} still stands.</div>`;
+  else if (c.status === 'withdrawn') foot = `<div class="notice warn">This offer was withdrawn.</div>`;
+  if (L.awarded && c.status === 'sent') foot = `<div class="notice warn">This load has been covered.</div>`;
+  $('#box').innerHTML = `
+    <div class="muted">Counter offer for ${esc(c.company)} · MC ${esc(c.mc)}</div>
+    <h1 style="font-size:40px" class="mono">${esc(money(c.amount))} <span class="muted" style="font-size:18px">all-in</span></h1>
+    <div class="lane" style="font-size:22px">${esc(L.lane)}</div>
+    <div class="muted">${L.ref ? '#' + esc(L.ref) + ' · ' : ''}Pick up ${esc(fmtDate(L.pickup_date) || 'TBD')}${L.delivery_date ? ' · Deliver ' + esc(fmtDate(L.delivery_date)) : ''}${L.equipment ? ' · ' + esc(L.equipment) : ''}${L.miles ? ' · ' + Math.round(L.miles).toLocaleString() + ' mi' + (c.amount ? ' · $' + (c.amount / L.miles).toFixed(2) + '/mi' : '') : ''}</div>
+    <div>Your bid: <b class="mono">${esc(money(c.your_bid))}</b></div>
+    ${c.message ? `<div class="notice">“${esc(c.message)}”</div>` : ''}
+    ${foot}
+    <div id="msg"></div>
+    <a href="/load/${esc(L.public_id)}">View load details</a>`;
+  const y = $('#yes'), n = $('#no');
+  if (y) y.onclick = () => act('accept');
+  if (n) n.onclick = () => act('decline');
+}
+async function act(action) {
+  try { render(await api('/api/counter/' + token, { method: 'POST', body: { action } })); }
+  catch (e) { $('#msg').innerHTML = `<div class="notice err">${esc(e.message)}</div>`; }
+}
+applyBranding();
+api('/api/counter/' + token).then(render).catch(e => { $('#box').innerHTML = `<div class="notice err">${esc(e.message)}</div><a href="/">See open loads</a>`; });
+</script>
+</body>
+</html>

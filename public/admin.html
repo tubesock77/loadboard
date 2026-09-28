@@ -32,8 +32,12 @@
   <div id="app" hidden>
     <div class="tabs" role="tablist">
       <button type="button" class="on" data-tab="loads">Loads</button>
+      <button type="button" data-tab="tracking">Tracking</button>
+      <button type="button" data-tab="profiles">Carriers</button>
+      <button type="button" data-tab="lanes">Lanes &amp; places</button>
+      <button type="button" data-tab="reports">Reports</button>
       <button type="button" data-tab="email">Daily email</button>
-      <button type="button" data-tab="carriers">Approved carriers</button>
+      <button type="button" data-tab="carriers">Highway list</button>
       <button type="button" data-tab="settings">Settings</button>
     </div>
 
@@ -42,7 +46,8 @@
       <div class="toolbar">
         <div class="left">
           <button class="btn primary" type="button" id="newLoad">+ New load</button>
-          <button class="btn" type="button" id="importBtn">Sync / Import</button>
+          <select id="laneQuick" style="width:auto;max-width:230px" aria-label="Start from a saved lane"><option value="">From saved lane…</option></select>
+          <button class="btn" type="button" id="importBtn">Import</button>
           <button class="btn" type="button" id="boardLink">Copy board link</button>
           <a class="btn" href="/api/admin/bids.csv">Export all bids</a>
         </div>
@@ -55,7 +60,66 @@
         </div>
       </div>
       <div class="stat-row" id="stats"></div>
+      <div class="bulkbar" id="bulkbar" hidden>
+        <b id="bulkCount">0 selected</b>
+        <button class="btn sm" type="button" data-bulk="close">Close bidding</button>
+        <button class="btn sm" type="button" data-bulk="draft">Move to draft</button>
+        <label class="bulkdl">Bids due <input type="datetime-local" id="bulkDeadline"></label><button class="btn sm" type="button" data-bulk="deadline">Set</button>
+        <button class="btn sm danger" type="button" data-bulk="delete">Delete</button>
+        <button class="linkbtn" type="button" id="bulkClear">Clear</button>
+      </div>
       <div class="panel table-wrap"><table class="data" id="loadTable"></table></div>
+    </section>
+
+    <!-- TRACKING -->
+    <section data-pane="tracking" hidden>
+      <div class="toolbar">
+        <div class="left"><h2 style="font-size:24px">After the award</h2><span class="muted" style="font-size:14px">Rate cons go out of Aljex — mark them sent here.</span></div>
+        <div class="right">
+          <input id="trkSearch" type="search" placeholder="Search" style="width:180px" aria-label="Search tracking">
+          <select id="trkFilter" style="width:auto" aria-label="Show"><option value="active">Active (not invoiced)</option><option value="all">All awarded</option></select>
+        </div>
+      </div>
+      <div class="stat-row" id="trkStats"></div>
+      <div class="panel table-wrap"><table class="data" id="trkTable"></table></div>
+    </section>
+
+    <!-- CARRIERS (profiles) -->
+    <section data-pane="profiles" hidden>
+      <div class="toolbar">
+        <div class="left"><h2 style="font-size:24px">Carriers</h2><span class="muted" style="font-size:14px">Everyone who has bid, plus anyone you've flagged.</span></div>
+        <div class="right">
+          <input id="cpSearch" type="search" placeholder="Name or MC" style="width:180px" aria-label="Search carriers">
+          <select id="cpFilter" style="width:auto" aria-label="Filter"><option value="">All</option><option value="preferred">★ Preferred</option><option value="dnu">Do not use</option><option value="pass">Highway pass</option><option value="fail">Not on Highway list</option></select>
+        </div>
+      </div>
+      <div class="panel table-wrap"><table class="data" id="cpTable"></table></div>
+    </section>
+
+    <!-- LANES & PLACES -->
+    <section data-pane="lanes" hidden>
+      <div class="toolbar">
+        <div class="left"><h2 style="font-size:24px">Saved lanes</h2><span class="muted" style="font-size:14px">Save a load as a lane from the load form, or set one to post itself on a schedule.</span></div>
+        <div class="right"><button class="btn" type="button" id="newLane">+ New lane</button></div>
+      </div>
+      <div class="panel table-wrap" style="margin-bottom:24px"><table class="data" id="laneTable"></table></div>
+      <div class="toolbar">
+        <div class="left"><h2 style="font-size:24px">Address book</h2><span class="muted" style="font-size:14px">Shippers and receivers. Admin only — carriers see city and state until you share more.</span></div>
+        <div class="right"><input id="facSearch" type="search" placeholder="Search" style="width:180px" aria-label="Search address book"><button class="btn" type="button" id="newFac">+ Add location</button></div>
+      </div>
+      <div class="panel table-wrap"><table class="data" id="facTable"></table></div>
+    </section>
+
+    <!-- REPORTS -->
+    <section data-pane="reports" hidden>
+      <div class="toolbar">
+        <div class="left"><h2 style="font-size:24px">Reports</h2><span class="muted" style="font-size:14px">By pickup date. Margin uses the customer rate on each load.</span></div>
+        <div class="right">
+          <select id="repPreset" style="width:auto" aria-label="Range"><option value="30u">Past 30 days + upcoming</option><option value="30">Last 30 days</option><option value="7">Last 7 days</option><option value="mtd">This month</option><option value="lm">Last month</option><option value="ytd">This year</option><option value="custom">Custom</option></select>
+          <input type="date" id="repFrom" aria-label="From" style="width:auto"><input type="date" id="repTo" aria-label="To" style="width:auto">
+        </div>
+      </div>
+      <div id="repBody"></div>
     </section>
 
     <!-- DAILY EMAIL -->
@@ -171,6 +235,7 @@
             <div class="field"><label>Days</label><div class="actions" id="e_days"></div></div>
           </div>
           <label style="font-weight:500"><input type="checkbox" id="e_daily_only_pass" style="width:auto"> Only send to Highway-pass carriers</label>
+          <label style="font-weight:500"><input type="checkbox" id="e_daily_match" style="width:auto"> Only send to carriers who fit that day's loads <span class="hint">(bid the lane before, run from the pickup or into the delivery state, or are based in the pickup state; skips "Do not use")</span></label>
         </fieldset>
         <div><button class="btn primary" type="submit">Save email settings</button></div>
       </form>
@@ -219,7 +284,23 @@
   <form id="loadForm" method="dialog">
     <div class="dlg-head"><h2 id="loadDlgTitle">New load</h2><button class="x" type="button" data-close aria-label="Close">×</button></div>
     <div class="dlg-body">
+      <div class="starter" id="starter">
+        <label>Start from <select id="f_lane"><option value="">— saved lane —</option></select></label>
+        <button class="btn sm" type="button" id="pasteToggle">Paste load details</button>
+        <div id="pasteBox" hidden style="flex-basis:100%">
+          <textarea id="pasteText" rows="6" placeholder="Paste a tender email or order text. The form fills in what it can find (cities, dates, weight, pallets, equipment, temp, load #, rate) for you to check."></textarea>
+          <div class="actions" style="margin-top:6px"><button class="btn sm primary" type="button" id="pasteFill">Fill the form</button><span id="pasteMsg" class="muted" style="font-size:13px"></span></div>
+        </div>
+      </div>
       <fieldset><legend>Lane</legend>
+        <div class="grid g2 facrow">
+          <div class="field"><label for="f_origin_fac">Shipper <span class="hint">(address book)</span></label><select id="f_origin_fac" data-side="origin"><option value="">—</option></select></div>
+          <div class="field"><label for="f_dest_fac">Receiver <span class="hint">(address book)</span></label><select id="f_dest_fac" data-side="dest"><option value="">—</option></select></div>
+          <div class="field"><label for="f_origin_name">Shipper name <span class="hint">(private)</span></label><input id="f_origin_name" name="origin_name"></div>
+          <div class="field"><label for="f_dest_name">Receiver name <span class="hint">(private)</span></label><input id="f_dest_name" name="dest_name"></div>
+          <div class="field"><label for="f_origin_address">Street address</label><input id="f_origin_address" name="origin_address"><button class="linkbtn sm" type="button" data-savefac="origin">Save shipper to address book</button></div>
+          <div class="field"><label for="f_dest_address">Street address</label><input id="f_dest_address" name="dest_address"><button class="linkbtn sm" type="button" data-savefac="dest">Save receiver to address book</button></div>
+        </div>
         <div class="grid g4">
           <div class="field" style="grid-column:span 2"><label for="f_origin_city">Origin city</label><input id="f_origin_city" name="origin_city" required></div>
           <div class="field"><label for="f_origin_state">State</label><input id="f_origin_state" name="origin_state" maxlength="3" required></div>
@@ -256,20 +337,20 @@
         <div class="field"><label for="f_requirements">Requirements <span class="hint">(shown to carriers)</span></label><textarea id="f_requirements" name="requirements" rows="2" placeholder="Load locks, no double brokering, tracking required…"></textarea></div>
         <div class="field"><label for="f_notes">Notes <span class="hint">(shown to carriers)</span></label><textarea id="f_notes" name="notes" rows="2"></textarea></div>
       </fieldset>
-      <fieldset><legend>Internal &amp; contact</legend>
+      <fieldset><legend>Internal <span class="hint" style="text-transform:none;letter-spacing:0;font-family:var(--body);font-weight:500">(never shown to carriers)</span></legend>
         <div class="grid g4">
           <div class="field"><label for="f_ref">Load / order #</label><input id="f_ref" name="ref"></div>
-          <div class="field"><label for="f_target_rate">Target rate $ <span class="hint">(private)</span></label><input id="f_target_rate" name="target_rate" inputmode="decimal"></div>
-          <div class="field" style="grid-column:span 2"><label for="f_miles">Miles <span class="hint">(blank = calculate from route)</span></label><input id="f_miles" name="miles" inputmode="numeric"></div>
-          <div class="field"><label for="f_contact_name">Contact</label><input id="f_contact_name" name="contact_name"></div>
-          <div class="field"><label for="f_contact_phone">Phone</label><input id="f_contact_phone" name="contact_phone"></div>
-          <div class="field" style="grid-column:span 2"><label for="f_contact_email">Email</label><input id="f_contact_email" name="contact_email"></div>
+          <div class="field"><label for="f_aljex_pro">Aljex Pro #</label><input id="f_aljex_pro" name="aljex_pro"></div>
+          <div class="field"><label for="f_customer">Customer</label><input id="f_customer" name="customer" list="custList"><datalist id="custList"></datalist></div>
+          <div class="field"><label for="f_customer_rate">Customer rate $</label><input id="f_customer_rate" name="customer_rate" inputmode="decimal"></div>
+          <div class="field"><label for="f_target_rate">Target carrier rate $</label><input id="f_target_rate" name="target_rate" inputmode="decimal"></div>
+          <div class="field" style="grid-column:span 3"><label for="f_miles">Miles <span class="hint">(blank = calculate from route)</span></label><input id="f_miles" name="miles" inputmode="numeric"></div>
         </div>
       </fieldset>
       <div id="loadMsg"></div>
     </div>
     <div class="dlg-foot">
-      <span id="editOnly" style="margin-right:auto;display:flex;gap:8px"><button class="btn" type="button" id="dupBtn">Duplicate</button><button class="btn danger" type="button" id="delBtn">Delete</button></span>
+      <span style="margin-right:auto;display:flex;gap:8px;flex-wrap:wrap"><span id="editOnly" style="display:flex;gap:8px"><button class="btn" type="button" id="dupBtn">Duplicate</button><button class="btn danger" type="button" id="delBtn">Delete</button></span><button class="btn" type="button" id="saveLaneBtn">Save as lane</button></span>
       <button class="btn" type="button" data-close>Cancel</button>
       <button class="btn" type="button" id="saveCopy">Save &amp; copy link</button>
       <button class="btn primary" type="submit">Save load</button>
@@ -278,44 +359,87 @@
 </dialog>
 
 <!-- bids -->
-<dialog id="bidsDlg">
+<dialog id="bidsDlg" style="width:min(1000px, calc(100vw - 24px))">
   <div class="dlg-head"><h2 id="bidsTitle">Bids</h2><button class="x" type="button" data-close aria-label="Close">×</button></div>
   <div class="dlg-body" id="bidsBody"></div>
 </dialog>
 
 <!-- import -->
 <dialog id="importDlg">
-  <div class="dlg-head"><h2>Sync &amp; import loads</h2><button class="x" type="button" data-close aria-label="Close">×</button></div>
+  <div class="dlg-head"><h2>Import loads</h2><button class="x" type="button" data-close aria-label="Close">×</button></div>
   <div class="dlg-body">
-    <fieldset><legend>Smartsheet — LOAD BOARD sheet</legend>
-      <p class="help" style="margin:0">Check <b>POST</b> on a row to put it live; uncheck it (or delete the row) to close it. Edits flow through every <span id="ssMin">3</span> minutes. The site writes BOARD STATUS, BIDS, LOW BID, HWY PASS BIDS, AWARDED carrier/MC/rate and LOAD LINK back to the sheet.</p>
-      <div id="ssStatus"></div>
-      <div class="actions" style="align-items:end">
-        <div class="field" style="max-width:260px"><label for="ssSheetId">Sheet ID</label><input id="ssSheetId" inputmode="numeric"></div>
-        <button class="btn primary" type="button" id="ssRun">Sync now</button>
-        <button class="btn" type="button" id="ssSave">Save sheet ID</button>
-      </div>
-    </fieldset>
-    <fieldset><legend>Keep loads in sync with a Google Sheet</legend>
-      <p class="help" style="margin:0">Keep your loads in a Google Sheet, one row per load. The site checks it every <span id="syncMin">5</span> minutes: <b>new row</b> → load posted, <b>edited row</b> → load updated, <b>deleted row</b> → load closed (its bids are kept). Every row needs a <b>Load #</b>. Share the sheet as "Anyone with the link → Viewer". Loads you add here in admin aren't touched.</p>
-      <div id="syncStatus"></div>
-      <div class="field"><label for="loadSheetUrl">Load sheet link</label><input id="loadSheetUrl" type="url" placeholder="https://docs.google.com/spreadsheets/d/…"></div>
-      <div class="actions"><button class="btn primary" type="button" id="saveSync">Save link &amp; sync</button><button class="btn" type="button" id="runSync">Sync now</button>
-        <a class="btn" href="/api/admin/template.csv">Download column template</a></div>
-    </fieldset>
-    <fieldset><legend>Or import a file once</legend>
+    <fieldset><legend>Import loads from a file</legend>
     <p class="help" style="margin:0">Upload a .csv or .xlsx with one load per row. Columns are matched by header name (e.g. <span class="mono">origin_city, origin_state, dest_city, dest_state, pickup_date, equipment, weight, bid_deadline, target_rate</span>). Rows without an origin and destination are skipped.</p>
     <input type="file" id="importFile" accept=".csv,.xlsx">
+    <div><a class="btn sm" href="/api/admin/template.csv">Download column template</a></div>
     <div id="importMsg"></div>
     </fieldset>
   </div>
+</dialog>
+
+<!-- load file (tracking) -->
+<dialog id="fileDlg" style="width:min(980px, calc(100vw - 24px))">
+  <div class="dlg-head"><h2 id="fileTitle">Load</h2><button class="x" type="button" data-close aria-label="Close">×</button></div>
+  <div class="dlg-body" id="fileBody"></div>
+</dialog>
+
+<!-- carrier profile -->
+<dialog id="cpDlg">
+  <div class="dlg-head"><h2 id="cpTitle">Carrier</h2><button class="x" type="button" data-close aria-label="Close">×</button></div>
+  <div class="dlg-body" id="cpBody"></div>
+</dialog>
+
+<!-- saved lane -->
+<dialog id="laneDlg">
+  <form id="laneForm" method="dialog">
+    <div class="dlg-head"><h2 id="laneTitle">Saved lane</h2><button class="x" type="button" data-close aria-label="Close">×</button></div>
+    <div class="dlg-body">
+      <div class="field"><label for="ln_name">Lane name</label><input id="ln_name" required placeholder="SLC → Dallas (UNFI)"></div>
+      <fieldset><legend>Load details it fills in</legend><div class="grid g4" id="laneFields"></div></fieldset>
+      <fieldset><legend>Post automatically</legend>
+        <label style="font-weight:500"><input type="checkbox" id="ln_repeat" style="width:auto"> Post this lane on a schedule</label>
+        <div class="grid g2">
+          <div class="field"><label>Days</label><div class="actions" id="ln_days"></div></div>
+          <div class="field"><label for="ln_time">Post at (Denver)</label><input id="ln_time" type="time" value="07:00"></div>
+        </div>
+        <div class="grid g3">
+          <div class="field"><label for="ln_pu">Pickup date = post day +</label><input id="ln_pu" inputmode="numeric" value="1"><span class="hint">days (0 = same day)</span></div>
+          <div class="field"><label for="ln_tr">Delivery = pickup +</label><input id="ln_tr" inputmode="numeric" value="1"><span class="hint">days (blank = none)</span></div>
+          <div class="field"><label for="ln_bh">Bids due after posting</label><input id="ln_bh" inputmode="numeric" value="24"><span class="hint">hours</span></div>
+        </div>
+      </fieldset>
+    </div>
+    <div class="dlg-foot"><button class="btn danger" type="button" id="laneDel" style="margin-right:auto">Delete lane</button><button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="submit">Save lane</button></div>
+  </form>
+</dialog>
+
+<!-- address book entry -->
+<dialog id="facDlg" style="width:min(640px, calc(100vw - 24px))">
+  <form id="facForm" method="dialog">
+    <div class="dlg-head"><h2 id="facTitle">Location</h2><button class="x" type="button" data-close aria-label="Close">×</button></div>
+    <div class="dlg-body">
+      <div class="field"><label for="fc_name">Name</label><input id="fc_name" required></div>
+      <div class="field"><label for="fc_address">Street address</label><input id="fc_address"></div>
+      <div class="grid g3">
+        <div class="field"><label for="fc_city">City</label><input id="fc_city"></div>
+        <div class="field"><label for="fc_state">State</label><input id="fc_state" maxlength="3"></div>
+        <div class="field"><label for="fc_zip">ZIP</label><input id="fc_zip"></div>
+        <div class="field"><label for="fc_contact">Contact</label><input id="fc_contact"></div>
+        <div class="field"><label for="fc_phone">Phone</label><input id="fc_phone"></div>
+        <div class="field"><label for="fc_hours">Hours</label><input id="fc_hours" placeholder="Mon–Fri 06:00–14:00"></div>
+      </div>
+      <div class="field"><label for="fc_notes">Notes <span class="hint">(appointments, dock info, lumper…)</span></label><textarea id="fc_notes" rows="2"></textarea></div>
+    </div>
+    <div class="dlg-foot"><button class="btn danger" type="button" id="facDel" style="margin-right:auto">Delete</button><button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="submit">Save</button></div>
+  </form>
 </dialog>
 
 <script src="/static/common.js"></script>
 <script>
 
 let loads = [], settings = {};
-const FIELDS = ['ref','status','origin_city','origin_state','origin_zip','dest_city','dest_state','dest_zip','pickup_date','pickup_window','delivery_date','delivery_window','equipment','temp','weight','pallets','commodity','stops','requirements','notes','target_rate','bid_deadline','contact_name','contact_phone','contact_email','miles'];
+const selected = new Set();
+const FIELDS = ['ref','status','origin_name','origin_address','origin_city','origin_state','origin_zip','dest_name','dest_address','dest_city','dest_state','dest_zip','pickup_date','pickup_window','delivery_date','delivery_window','equipment','temp','weight','pallets','commodity','stops','requirements','notes','target_rate','bid_deadline','miles','customer','customer_rate','aljex_pro'];
 const boardUrl = () => location.origin + '/';
 const loadUrl = l => location.origin + '/load/' + l.public_id;
 
@@ -345,12 +469,17 @@ $$('.tabs button').forEach(b => b.onclick = () => {
   if (b.dataset.tab === 'carriers') loadCarriers();
   if (b.dataset.tab === 'settings') { fillSettings(); loadEmail(); loadCost(); }
   if (b.dataset.tab === 'email') loadEmailTab();
+  if (b.dataset.tab === 'tracking') loadTracking();
+  if (b.dataset.tab === 'profiles') loadProfiles();
+  if (b.dataset.tab === 'lanes') loadLanesTab();
+  if (b.dataset.tab === 'reports') loadReports();
 });
 $$('dialog [data-close]').forEach(b => b.onclick = () => b.closest('dialog').close());
 
 // ---------- loads table ----------
 async function refreshLoads() {
   loads = await api('/api/admin/loads');
+  if (typeof refreshRefs === 'function' && !refsLoaded) refreshRefs();
   renderLoads();
 }
 function renderLoads() {
@@ -364,16 +493,17 @@ function renderLoads() {
     <div class="stat"><b>${loads.reduce((s, l) => s + (l.status === 'open' ? l.bid_count : 0), 0)}</b><span>Bids on open loads</span></div>
     <div class="stat"><b>${loads.filter(l => l.status === 'awarded').length}</b><span>Awarded</span></div>`;
   if (!list.length) { $('#loadTable').innerHTML = `<tbody><tr><td class="empty">${loads.length ? 'No loads match.' : 'No loads yet. Click <b>+ New load</b> or <b>Import loads</b> to post your first one.'}</td></tr></tbody>`; return; }
-  $('#loadTable').innerHTML = `<thead><tr><th>Lane</th><th>Pickup</th><th class="num" title="Loaded miles · estimated break-even (incl. deadhead) · DAT market">Miles · cost</th><th class="num">Low bid</th><th>Due</th><th></th></tr></thead>
+  $('#loadTable').innerHTML = `<thead><tr><th style="width:30px"><input type="checkbox" id="selAll" aria-label="Select all shown"></th><th>Lane</th><th>Pickup</th><th class="num" title="Loaded miles · estimated break-even (incl. deadhead) · DAT market">Miles · cost</th><th class="num">Low bid</th><th>Due</th><th></th></tr></thead>
   <tbody>${list.map(l => {
     const st = l.status === 'open' && !l.bidding_open ? 'closed' : l.status;
     const stLabel = l.status === 'open' && !l.bidding_open ? 'Expired' : l.status;
     const geoNote = l.geo_status === 'failed' ? ' <span class="chip bad" title="' + esc(l.geo_error || 'Address not found — check city/state/ZIP') + '">no map</span>' : l.geo_status === 'pending' ? ' <span class="chip">mapping…</span>' : '';
     const overTarget = l.target_rate && l.low_bid && l.low_bid > l.target_rate;
-    const src = l.source === 'sheet' ? ' <span class="chip" title="Managed by your Google Sheet">sheet</span>' : l.source === 'smartsheet' ? ' <span class="chip" title="Managed by Smartsheet LOAD BOARD">SS</span>' : '';
-    return `<tr>
+    const src = '';
+    return `<tr class="${selected.has(l.id) ? 'sel' : ''}">
+      <td><input type="checkbox" data-sel="${l.id}" ${selected.has(l.id) ? 'checked' : ''} aria-label="Select load"></td>
       <td class="lanecell"><div class="lane">${esc(place(l.origin_city, l.origin_state, l.origin_zip))} <span class="arrow">→</span> ${esc(place(l.dest_city, l.dest_state, l.dest_zip))}</div>
-        <div class="meta"><span class="status ${st}">${esc(stLabel)}</span> <span class="mono">${l.ref ? '#' + esc(l.ref) : esc(l.public_id)}</span>${src}${l.customer ? ' · ' + esc(l.customer) : ''}${geoNote}</div></td>
+        <div class="meta"><span class="status ${st}">${esc(l.status === 'awarded' && l.stage && l.stage !== 'awarded' ? stageLabel(l.stage) : stLabel)}</span> <span class="mono">${l.ref ? '#' + esc(l.ref) : esc(l.public_id)}</span>${src}${l.customer ? ' · ' + esc(l.customer) : ''}${geoNote}</div></td>
       <td style="white-space:nowrap">${esc(fmtDate(l.pickup_date))}<div class="muted sm">${esc(l.equipment || '')}</div></td>
       <td class="num">${l.miles ? Number(l.miles).toLocaleString() + ' mi' : '—'}${l.cost && l.cost.breakeven ? `<div class="sm">BE ${esc(money(l.cost.breakeven))}</div><div class="muted sm">mkt ${esc(money(l.cost.market))}</div>` : ''}</td>
       <td class="num">${l.bid_count ? `<b style="${overTarget ? 'color:var(--bad)' : ''}">${esc(money(l.low_bid))}</b>` : '—'}
@@ -381,11 +511,15 @@ function renderLoads() {
         ${l.target_rate ? `<div class="muted sm">target ${esc(money(l.target_rate))}</div>` : ''}${l.bid_count ? costChip(l.low_tag, true) : ''}</td>
       <td class="muted sm" style="white-space:nowrap">${l.bid_deadline ? esc(fmtDateTime(l.bid_deadline)).replace(', ', ',<br>') : '—'}</td>
       <td><div class="actions" style="flex-wrap:nowrap;gap:6px">
-        <button class="btn sm primary" data-act="bids" data-id="${l.id}">Bids${l.bid_count ? ' (' + l.bid_count + ')' : ''}</button>
+        ${l.status === 'awarded' ? `<button class="btn sm primary" data-act="track" data-id="${l.id}" title="Stages, notes, documents">Track</button>
+        <button class="btn sm" data-act="bids" data-id="${l.id}">Bids${l.bid_count ? ' (' + l.bid_count + ')' : ''}</button>`
+        : `<button class="btn sm primary" data-act="bids" data-id="${l.id}">Bids${l.bid_count ? ' (' + l.bid_count + ')' : ''}</button>
+        <button class="btn sm" data-act="link" data-id="${l.id}" title="Copy carrier link">Link</button>`}
         <button class="btn sm" data-act="edit" data-id="${l.id}">Edit</button>
-        <button class="btn sm" data-act="link" data-id="${l.id}" title="Copy carrier link">Link</button>
       </div></td></tr>`;
   }).join('')}</tbody>`;
+  const sa = $('#selAll'); if (sa) { sa.checked = list.length && list.every(l => selected.has(l.id)); sa.onchange = () => { list.forEach(l => sa.checked ? selected.add(l.id) : selected.delete(l.id)); renderLoads(); }; }
+  renderBulk();
 }
 $('#search').oninput = renderLoads; $('#statusFilter').onchange = renderLoads;
 $('#boardLink').onclick = () => copyText(boardUrl());
@@ -398,6 +532,7 @@ $('#loadTable').onclick = async e => {
     if (act === 'edit') openLoad(l);
     if (act === 'bids') openBids(l);
     if (act === 'link') copyText(loadUrl(l));
+    if (act === 'track') openFile(l.id);
     if (act === 'dup') { const n = await api(`/api/admin/loads/${l.id}/duplicate`, { method: 'POST' }); await refreshLoads(); openLoad(n); toast('Duplicated as a draft'); }
     if (act === 'close') { await api(`/api/admin/loads/${l.id}`, { method: 'PUT', body: { status: 'closed' } }); toast('Bidding closed'); refreshLoads(); }
     if (act === 'open') {
@@ -431,8 +566,8 @@ function openLoad(l) {
   if (v.status === 'awarded') { f.elements.status.value = 'closed'; }
   $('#loadMsg').innerHTML = v.status === 'awarded' ? '<div class="notice warn">This load is awarded. Use "Reopen" in the bids window to take bids again.</div>' : '';
   if (editing && editing.geo_status === 'failed') $('#loadMsg').innerHTML += `<div class="notice err" style="margin-top:8px"><b>Map/miles problem:</b> ${esc(editing.geo_error || 'address not found')}. Check the city, state and ZIP, then save to retry.</div>`;
-  if (editing && (editing.source === 'sheet' || editing.source === 'smartsheet')) $('#loadMsg').innerHTML += '<div class="notice warn" style="margin-top:8px">This load comes from your ' + (editing.source === 'smartsheet' ? 'Smartsheet' : 'Google Sheet') + '. Edits here will be overwritten at the next sync — change the sheet instead.</div>';
   f.elements.status.disabled = v.status === 'awarded';
+  if (typeof onOpenLoad === 'function') onOpenLoad(v, !!editing);
   $('#editOnly').hidden = !editing;
   $('#loadDlg').showModal();
   f.elements.origin_city.focus();
@@ -483,22 +618,19 @@ async function renderBids(id) {
   const cp = costPanel(l);
   if (!bids.length) { $('#bidsBody').innerHTML = head + cp + '<div class="panel empty">No bids yet. Send carriers the link to this load.</div>'; wire(l); return; }
   $('#bidsBody').innerHTML = head + cp + `<div class="panel table-wrap"><table class="data">
-    <thead><tr><th>#</th><th>Carrier</th><th>Highway</th><th>Contact</th><th class="num">Bid</th><th class="num">$/mi</th><th class="num" title="Bid minus estimated break-even">Margin</th><th class="num">vs target</th><th>Submitted</th><th></th></tr></thead>
+    <thead><tr><th>#</th><th>Carrier</th><th>Highway</th><th>Contact</th><th class="num">Bid</th><th class="num" title="Bid minus estimated break-even">Margin</th><th></th></tr></thead>
     <tbody>${bids.map((b, i) => {
       const diff = l.target_rate ? b.amount - l.target_rate : null;
       return `<tr>
       <td class="num">${i + 1}</td>
-      <td><b>${esc(b.company)}</b><div class="mono muted" style="font-size:12.5px">MC ${esc(b.mc)}</div>${b.notes ? `<div style="font-size:13px;margin-top:4px">“${esc(b.notes)}”</div>` : ''}</td>
+      <td><button class="linkbtn" type="button" data-cp="${esc(b.mc)}" style="font-weight:700;text-decoration:none;color:var(--ink);font-size:15px">${esc(b.company)}</button>${flagChip(b.carrier_flag)}<div class="mono muted" style="font-size:12.5px">MC ${esc(b.mc)}</div>${counterChip(b.counter)}${b.notes ? `<div style="font-size:13px;margin-top:4px">“${esc(b.notes)}”</div>` : ''}</td>
       <td>${b.highway_pass ? `<span class="chip eq" style="background:color-mix(in srgb, var(--good) 14%, transparent);color:var(--good)">✓ Pass</span>${b.highway_name && b.highway_name.toLowerCase() !== String(b.company).toLowerCase() ? `<div class="muted" style="font-size:12px;margin-top:3px">List: ${esc(b.highway_name)}</div>` : ''}`
         : '<span class="chip bad">✗ Not on list</span>'}</td>
-      <td>${esc(b.contact_name)}<div style="font-size:13px">${esc(b.phone)}</div><div style="font-size:13px">${esc(b.email)}</div></td>
-      <td class="num"><b>${esc(money(b.amount))}</b></td>
-      <td class="num">${l.miles ? '$' + (b.amount / l.miles).toFixed(2) : '—'}</td>
+      <td>${esc(b.contact_name)}<div style="font-size:13px">${esc(b.phone)}</div><div style="font-size:13px">${esc(b.email)}</div><div class="muted" style="font-size:12px">${esc(fmtDateTime(b.updated_at))}</div></td>
+      <td class="num"><b>${esc(money(b.amount))}</b><div class="muted" style="font-size:12px">${l.miles ? '$' + (b.amount / l.miles).toFixed(2) + '/mi' : ''}</div>${diff == null ? '' : `<div style="font-size:12px;color:${diff > 0 ? 'var(--bad)' : 'var(--good)'}">${diff > 0 ? '+' : '−'}${esc(money(Math.abs(diff)))} vs target</div>`}</td>
       <td class="num">${b.cost_tag ? `<span class="mono" style="font-size:13.5px">${b.cost_tag.margin < 0 ? '−' : '+'}${esc(money(Math.abs(b.cost_tag.margin)))}</span><div class="muted" style="font-size:12px">${b.cost_tag.pct}%</div>${costChip(b.cost_tag)}` : '—'}</td>
-      <td class="num" style="color:${diff == null ? 'inherit' : diff > 0 ? 'var(--bad)' : 'var(--good)'}">${diff == null ? '—' : (diff > 0 ? '+' : '−') + money(Math.abs(diff))}</td>
-      <td style="white-space:nowrap">${esc(fmtDateTime(b.updated_at))}</td>
-      <td><div class="actions">${b.status === 'awarded' ? '<span class="status awarded">Awarded</span>'
-        : l.status === 'awarded' ? '' : `<button class="btn sm primary" data-award="${b.id}" data-pass="${b.highway_pass}">Award</button>`}
+      <td><div class="actions" style="gap:6px;justify-content:flex-end">${b.status === 'awarded' ? '<span class="status awarded">Awarded</span>'
+        : l.status === 'awarded' ? '' : `<button class="btn sm primary" data-award="${b.id}" data-pass="${b.highway_pass}" data-flag="${esc(b.carrier_flag || '')}">Award</button><button class="btn sm" data-counter="${b.id}" data-amt="${b.amount}" data-email="${b.email ? 1 : 0}" title="Email this carrier a counter offer">Counter</button>`}
         <button class="btn sm danger" data-delbid="${b.id}" title="Remove bid">×</button></div></td></tr>`;
     }).join('')}</tbody></table></div>`;
   wire(l);
@@ -543,9 +675,11 @@ function wire(l) {
     await api(`/api/admin/loads/${l.id}/reopen`, { method: 'POST' }); toast('Reopened for bids'); renderBids(l.id); refreshLoads();
   };
   $$('[data-award]').forEach(b => b.onclick = async () => {
-    if (!confirm((b.dataset.pass === '1' ? '' : 'Heads up: this carrier is NOT on your Highway list.\n\n') + 'Award this load to this carrier? Bidding will close and the load will show as covered.')) return;
-    await api(`/api/admin/bids/${b.dataset.award}/award`, { method: 'POST' }); toast('Load awarded'); renderBids(l.id); refreshLoads();
+    if (!confirm((b.dataset.flag === 'dnu' ? 'WARNING: you marked this carrier DO NOT USE.\n\n' : '') + (b.dataset.pass === '1' ? '' : 'Heads up: this carrier is NOT on your Highway list.\n\n') + 'Award this load to this carrier? Bidding will close and the load will show as covered.')) return;
+    await api(`/api/admin/bids/${b.dataset.award}/award`, { method: 'POST' }); toast('Load awarded — send the rate con from Aljex, then mark it in Tracking'); renderBids(l.id); refreshLoads();
   });
+  $$('#bidsBody [data-cp]').forEach(b => b.onclick = () => openCarrier(b.dataset.cp));
+  $$('[data-counter]').forEach(b => b.onclick = () => sendCounter(b, l));
   $$('[data-delbid]').forEach(b => b.onclick = async () => {
     if (!confirm('Remove this bid?')) return;
     await api(`/api/admin/bids/${b.dataset.delbid}`, { method: 'DELETE' }); renderBids(l.id); refreshLoads();
@@ -556,43 +690,7 @@ function wire(l) {
 function fileToBase64(file) {
   return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1]); r.onerror = rej; r.readAsDataURL(file); });
 }
-$('#importBtn').onclick = async () => { $('#importMsg').innerHTML = ''; $('#importFile').value = ''; $('#importDlg').showModal();
-  const [a, b] = await Promise.all([api('/api/admin/loadsync'), api('/api/admin/smartsheet')]); renderSync(a); renderSS(b); };
-function renderSS(st) {
-  $('#ssMin').textContent = st.minutes; $('#ssSheetId').value = st.sheetId || '';
-  const l = st.last; let html = '';
-  if (!st.tokenSet) html = '<div class="notice warn">Not connected: add <b>SMARTSHEET_TOKEN</b> in Render → your service → Environment, then redeploy.</div>';
-  else if (st.error) html = `<div class="notice err"><b>Last sync failed:</b> ${esc(st.error)}</div>`;
-  else if (l) {
-    html = `<div class="notice ok">Synced "${esc(l.sheet)}" ${esc(fmtDateTime(l.at))}: ${l.rows} row${l.rows === 1 ? '' : 's'} · ${l.created} new · ${l.updated} updated · ${l.closed} closed · ${st.liveLoads} live · ${l.written} row${l.written === 1 ? '' : 's'} written back.</div>`;
-    if (l.skipped && l.skipped.length) html += `<div class="notice warn" style="margin-top:8px">Needs attention: ${l.skipped.map(x => 'row ' + x.row + ' (' + esc(x.reason) + ')').join(', ')}</div>`;
-  } else html = '<div class="muted">Connected. Waiting for first sync…</div>';
-  if (st.tokenSet && !st.baseUrl) html += '<div class="notice warn" style="margin-top:8px">LOAD LINK fills in after you sign in to admin once on your live address (or set PUBLIC_URL in Render).</div>';
-  $('#ssStatus').innerHTML = html;
-}
-$('#ssRun').onclick = async () => { $('#ssStatus').innerHTML = '<div class="muted">Syncing with Smartsheet…</div>'; renderSS(await api('/api/admin/smartsheet/run', { method: 'POST' })); refreshLoads(); setTimeout(refreshLoads, 6000); };
-$('#ssSave').onclick = async () => { $('#ssStatus').innerHTML = '<div class="muted">Syncing with Smartsheet…</div>'; renderSS(await api('/api/admin/smartsheet', { method: 'PUT', body: { sheetId: $('#ssSheetId').value } })); refreshLoads(); };
-function renderSync(st) {
-  $('#syncMin').textContent = st.minutes;
-  $('#loadSheetUrl').value = st.url || '';
-  const l = st.last;
-  let html = '';
-  if (st.error) html = `<div class="notice err"><b>Last sync failed:</b> ${esc(st.error)}</div>`;
-  else if (st.url && l) {
-    html = `<div class="notice ok">Synced ${esc(fmtDateTime(l.at))}: ${l.rows} row${l.rows === 1 ? '' : 's'} read · ${l.created} new · ${l.updated} updated · ${l.closed} closed · ${st.sheetLoads} open from sheet.</div>`;
-    if (l.skipped && l.skipped.length) html += `<div class="notice warn" style="margin-top:8px">Skipped: ${l.skipped.map(x => 'row ' + x.row + ' (' + esc(x.reason) + ')').join(', ')}</div>`;
-  } else if (!st.url) html = '<div class="muted">Not connected yet.</div>';
-  $('#syncStatus').innerHTML = html;
-}
-$('#saveSync').onclick = async () => {
-  $('#syncStatus').innerHTML = '<div class="muted">Reading sheet…</div>';
-  const st = await api('/api/admin/loadsync', { method: 'PUT', body: { url: $('#loadSheetUrl').value } });
-  renderSync(st); refreshLoads(); setTimeout(refreshLoads, 6000);
-};
-$('#runSync').onclick = async () => {
-  $('#syncStatus').innerHTML = '<div class="muted">Syncing…</div>';
-  renderSync(await api('/api/admin/loadsync/run', { method: 'POST' })); refreshLoads(); setTimeout(refreshLoads, 6000);
-};
+$('#importBtn').onclick = () => { $('#importMsg').innerHTML = ''; $('#importFile').value = ''; $('#importDlg').showModal(); };
 $('#importFile').onchange = async e => {
   const file = e.target.files[0]; if (!file) return;
   $('#importMsg').innerHTML = '<div class="muted">Importing…</div>';
@@ -785,7 +883,7 @@ $('#copyDigest').onclick = async () => {
 // ---------- email settings ----------
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 $('#e_days').innerHTML = DAYS.map((d, i) => `<label style="font-weight:500;display:flex;gap:4px;align-items:center;margin:0"><input type="checkbox" data-day="${i}" style="width:auto">${d}</label>`).join('');
-const EKEYS = ['em_bid_alert', 'em_bid_confirm', 'em_outbid', 'em_award_win', 'em_award_lost', 'daily_auto', 'daily_only_pass'];
+const EKEYS = ['em_bid_alert', 'em_bid_confirm', 'em_outbid', 'em_award_win', 'em_award_lost', 'daily_auto', 'daily_only_pass', 'daily_match'];
 function renderEmailStatus(e) {
   $('#emailStatus').innerHTML = !e.configured
     ? `<div class="notice warn">Not connected. Add ${e.missing.map(esc).join(', ')} in Render → Environment, then redeploy.</div>`
@@ -871,5 +969,6 @@ $('#costReset').onclick = async () => {
 
 boot();
 </script>
+<script src="/static/admin-ops.js"></script>
 </body>
 </html>
