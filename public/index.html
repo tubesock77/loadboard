@@ -32,6 +32,24 @@
     </div>
   </div>
   <div class="loads" id="loads"></div>
+
+  <section class="panel alertbox" id="alertbox">
+    <h2>Get loads on your lanes by email</h2>
+    <p class="muted" style="margin:0 0 12px">Tell us where you run. We'll email you when a load posts on your lanes — with the rate, details and a one-reply way to bid or book.</p>
+    <form id="alertForm" class="stack" novalidate>
+      <div class="grid g3">
+        <div class="field"><label for="al_email">Email<span class="req" aria-hidden="true">*</span></label><input id="al_email" type="email" autocomplete="email" required></div>
+        <div class="field"><label for="al_name">Name</label><input id="al_name" autocomplete="name"></div>
+        <div class="field"><label for="al_mc">MC number</label><input id="al_mc" inputmode="numeric"></div>
+      </div>
+      <div class="field"><label>Lanes<span class="req" aria-hidden="true">*</span> <span class="hint">(pick up → deliver; leave one side on "Any")</span></label>
+        <div class="lanes" id="al_lanes"></div>
+        <div><button class="linkbtn" type="button" id="al_add">+ Add another lane</button></div></div>
+      <div class="field" style="max-width:240px"><label for="al_eq">Equipment</label><select id="al_eq"><option value="">Any</option><option value="van">Dry van</option><option value="reefer">Reefer</option><option value="flatbed">Flatbed / step deck</option></select></div>
+      <div id="al_msg" aria-live="polite"></div>
+      <div><button class="btn primary" type="submit">Email me loads</button> <span class="hint">Stop anytime from any alert email.</span></div>
+    </form>
+  </section>
 </main>
 
 <footer class="footer"><div class="wrap">All rates are all-in USD (linehaul + fuel).</div></footer>
@@ -74,7 +92,8 @@ function render() {
       <div class="side">
         <div><div class="lowbid-label">${l.bid_count ? 'Current Bid' : 'No bids yet'}</div>
         <div class="lowbid">${l.bid_count ? esc(money(l.low_bid)) : '—'}</div></div>
-        <span class="btn primary sm">View &amp; bid</span>
+        ${l.book_rate ? `<div><div class="lowbid-label" style="color:var(--good)">Book now</div><div class="lowbid" style="color:var(--good)">${esc(money(l.book_rate))}</div></div>` : ''}
+        <span class="btn primary sm">${l.book_rate ? 'Book or bid' : 'View &amp; bid'}</span>
       </div>
     </a>`;
   }).join('');
@@ -98,6 +117,27 @@ async function load() {
   }
 }
 ['#q', '#eq', '#ostate'].forEach(s => $(s).addEventListener('input', render));
+// lane alerts sign-up
+const ST = 'AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY'.split(' ');
+const stOpts = `<option value="">Any</option>` + ST.map(s => `<option>${s}</option>`).join('');
+function addLaneRow(o = '', d = '') {
+  const row = document.createElement('div'); row.className = 'lanerow';
+  row.innerHTML = `<select aria-label="Pickup state" data-o>${stOpts}</select> <span aria-hidden="true">→</span> <select aria-label="Delivery state" data-d>${stOpts}</select>`;
+  row.querySelector('[data-o]').value = o; row.querySelector('[data-d]').value = d;
+  $('#al_lanes').appendChild(row);
+}
+addLaneRow();
+$('#al_add').onclick = () => { if ($$('#al_lanes .lanerow').length < 6) addLaneRow(); };
+try { const c = JSON.parse(localStorage.getItem('carrier') || '{}'); if (c.email) $('#al_email').value = c.email; if (c.contact_name) $('#al_name').value = c.contact_name; if (c.mc) $('#al_mc').value = c.mc; } catch (_) { /* no storage */ }
+$('#alertForm').onsubmit = async e => {
+  e.preventDefault();
+  const lanes = $$('#al_lanes .lanerow').map(r => ({ o: r.querySelector('[data-o]').value, d: r.querySelector('[data-d]').value })).filter(l => l.o || l.d);
+  try {
+    const r = await api('/api/alerts', { method: 'POST', body: { email: $('#al_email').value, name: $('#al_name').value, mc: $('#al_mc').value, equipment: $('#al_eq').value, lanes } });
+    $('#al_msg').innerHTML = `<div class="notice ok"><b>You're set.</b> We'll email ${esc($('#al_email').value)} when loads post on ${r.count === 1 ? 'that lane' : 'those lanes'} — including any that are open right now.</div>`;
+  } catch (err) { $('#al_msg').innerHTML = `<div class="notice err">${esc(err.message)}</div>`; }
+};
+
 applyBranding();
 load();
 setInterval(load, 60000);

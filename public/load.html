@@ -135,7 +135,9 @@ function renderBidbox() {
     : iAmLow ? `<div class="hint" style="margin-top:4px">You're winning. To lower your bid, bid <b>${esc(money(l.low_bid - step))} or less</b> (${esc(money(step))} steps).</div>`
     : `<div class="hint" style="margin-top:4px;color:var(--ink)">To take the lead, bid <b>${esc(money(l.low_bid - step))} or less</b> (${esc(money(step))} steps).</div>`;
   box.innerHTML = top + `<div class="bidbox-body">
-    <h2>Bid on this load</h2>
+    ${l.book_rate ? `<div class="booknow"><div><div class="lowbid-label">Book it now</div><div class="big">${esc(money(l.book_rate))}</div><div class="rpm">${esc(perMile(l.book_rate, l.miles))} · all-in, no bidding</div></div>
+      <div class="hint">Fill in your info below and tap <b>Book it now</b>. We confirm and send the rate con.</div></div>` : ''}
+    <h2>${l.book_rate ? 'Or bid your rate' : 'Bid on this load'}</h2>
     ${myState ? statusLine(myState) : mine ? `<div class="notice warn">You bid ${esc(money(mine.amount))} on ${esc(fmtDateTime(mine.at))}. Submitting again replaces your bid.</div>` : ''}
     ${(c.mc || c.company || c.contact_name) ? `<div class="notyou">Filled in for <b>${esc(c.company || c.contact_name || 'MC ' + c.mc)}</b> <button type="button" class="linkbtn" id="notYou">Not you? Clear</button></div>` : ''}
     <form id="bform" class="stack" novalidate>
@@ -154,6 +156,7 @@ function renderBidbox() {
       <div class="hint"><span class="req">*</span> Required</div>
       <div id="bmsg" aria-live="polite"></div>
       <button class="btn primary" type="submit" id="bbtn">${mine ? 'Update my bid' : 'Submit bid'}</button>
+      ${l.book_rate ? `<button class="btn booknow-btn" type="button" id="bookBtn">Book it now at ${esc(money(l.book_rate))}</button>` : ''}
       <div class="terms">${esc(cfg.bid_terms || '')}</div>
     </form></div>`;
   const upd = () => { const v = Number($('#amount').value.replace(/[^0-9.]/g, '')); $('#rpm').textContent = v && l.miles ? perMile(v, l.miles) + ` · ${Number(l.miles).toLocaleString()} mi` : ''; };
@@ -186,11 +189,14 @@ function renderBidbox() {
     toast('Cleared. Enter your info below.');
     const m = $('#mc'); if (m) m.focus();
   };
+  let booking = false;
+  const bk = $('#bookBtn'); if (bk) bk.onclick = () => { booking = true; $('#bform').requestSubmit(); };
   $('#bform').onsubmit = async e => {
     e.preventDefault();
-    const body = { mc: $('#mc').value, amount: $('#amount').value, company: $('#company').value, contact_name: $('#cname').value,
-      phone: $('#phone').value, email: $('#email').value, notes: $('#bnotes').value };
-    const btn = $('#bbtn'); btn.disabled = true; btn.textContent = 'Submitting…';
+    const isBook = booking; booking = false;
+    const body = { mc: $('#mc').value, amount: isBook ? String(l.book_rate) : $('#amount').value, company: $('#company').value, contact_name: $('#cname').value,
+      phone: $('#phone').value, email: $('#email').value, notes: $('#bnotes').value, book_now: isBook };
+    const btn = isBook ? $('#bookBtn') : $('#bbtn'); btn.disabled = true; btn.textContent = isBook ? 'Booking…' : 'Submitting…';
     try {
       const r = await api(`/api/loads/${encodeURIComponent(pid)}/bids`, { method: 'POST', body });
       store.set('carrier', { mc: body.mc, company: body.company, contact_name: body.contact_name, phone: body.phone, email: body.email });
@@ -199,10 +205,13 @@ function renderBidbox() {
       L0.low_bid = r.low_bid; L0.bid_count = r.bid_count;
       myState = { state: r.you_are_low ? 'leading' : 'outbid', my_bid: r.amount, low_bid: r.low_bid, next_max: r.next_max };
       renderBidbox();
-      showBidPopup(r);
+      if (r.book_now) popup(`<div class="pop-icon good">✓</div><h2>Booking request sent</h2><div class="pop-amount">${esc(money(r.amount))}</div>
+        <div class="muted">${esc(place(L0.origin_city, L0.origin_state))} → ${esc(place(L0.dest_city, L0.dest_state))}${L0.ref ? ' · #' + esc(L0.ref) : ''}</div>
+        <p>We'll confirm shortly and send the rate confirmation.</p><button class="btn primary" type="button" data-pop-close>OK</button>`);
+      else showBidPopup(r);
     } catch (err) {
       $('#bmsg').innerHTML = `<div class="notice err">${esc(err.message)}</div>`;
-      btn.disabled = false; btn.textContent = mine ? 'Update my bid' : 'Submit bid';
+      btn.disabled = false; btn.textContent = isBook ? `Book it now at ${money(l.book_rate)}` : mine ? 'Update my bid' : 'Submit bid';
     }
   };
 }

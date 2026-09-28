@@ -32,6 +32,7 @@
   <div id="app" hidden>
     <div class="tabs" role="tablist">
       <button type="button" class="on" data-tab="loads">Loads</button>
+      <button type="button" data-tab="inbox">Inbox <span class="tabcount" id="inboxCount" hidden></span></button>
       <button type="button" data-tab="tracking">Tracking</button>
       <button type="button" data-tab="profiles">Carriers</button>
       <button type="button" data-tab="lanes">Lanes &amp; places</button>
@@ -69,6 +70,30 @@
         <button class="linkbtn" type="button" id="bulkClear">Clear</button>
       </div>
       <div class="panel table-wrap"><table class="data" id="loadTable"></table></div>
+    </section>
+
+    <!-- INBOX -->
+    <section data-pane="inbox" hidden>
+      <div class="panel inboxbar">
+        <div class="ibmode">
+          <b>loads@ inbox</b>
+          <label><input type="radio" name="ibmode" value="off"> Off</label>
+          <label><input type="radio" name="ibmode" value="review"> Review <span class="hint">(replies wait for you)</span></label>
+          <label><input type="radio" name="ibmode" value="auto"> Automatic <span class="hint">(sends on its own)</span></label>
+        </div>
+        <div class="actions"><span id="ibStatus" class="muted sm"></span><button class="btn sm" type="button" id="ibCheck">Check now</button><button class="btn sm" type="button" id="ibTplBtn">Replies &amp; wording</button><button class="btn sm" type="button" id="ibTestBtn">Try an email</button></div>
+      </div>
+      <div id="ibSetup"></div>
+      <div class="toolbar">
+        <div class="left"><select id="ibFilter" style="width:auto" aria-label="Show"><option value="open">Needs you &amp; drafts</option><option value="handled">Answered</option><option value="ignored">Ignored</option><option value="all">All</option></select>
+          <span class="muted sm">Anything the site can't read is left for you — answer those in Outlook.</span></div>
+      </div>
+      <div id="ibList" class="iblist"></div>
+      <div class="toolbar" style="margin-top:26px">
+        <div class="left"><h2 style="font-size:24px">Lane alerts</h2><span class="muted sm">Carriers who asked about a lane, or signed up on the board. They're emailed when a matching load posts.</span></div>
+        <div class="right"><label class="sm" style="display:inline-flex;gap:6px;align-items:center;font-weight:600"><input type="checkbox" id="alertsOn" style="width:auto"> Send lane alerts</label><button class="btn sm" type="button" id="newAlert">+ Add alert</button></div>
+      </div>
+      <div class="panel table-wrap"><table class="data" id="alertTable"></table></div>
     </section>
 
     <!-- TRACKING -->
@@ -377,6 +402,32 @@
   </div>
 </dialog>
 
+<!-- inbox: templates -->
+<dialog id="tplDlg">
+  <form id="tplForm" method="dialog">
+    <div class="dlg-head"><h2>Replies &amp; wording</h2><button class="x" type="button" data-close aria-label="Close">×</button></div>
+    <div class="dlg-body">
+      <p class="help" style="margin:0">These are the canned lines the site uses. Placeholders in braces fill in automatically: <span class="mono">{first_name} {lane_text} {lane} {load} {rate} {standing} {problem} {example} {company}</span>. Load details are added under the lines automatically.</p>
+      <div id="tplFields" class="stack"></div>
+      <div class="grid g2"><div class="field"><label for="alertDays">Lane alerts last (days)</label><input id="alertDays" inputmode="numeric"></div></div>
+    </div>
+    <div class="dlg-foot"><button class="btn" type="button" id="tplReset" style="margin-right:auto">Reset wording to defaults</button><button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="submit">Save</button></div>
+  </form>
+</dialog>
+
+<!-- inbox: try an email -->
+<dialog id="testDlg">
+  <div class="dlg-head"><h2>Try an email</h2><button class="x" type="button" data-close aria-label="Close">×</button></div>
+  <div class="dlg-body">
+    <p class="help" style="margin:0">Paste a carrier email to see what the site would do. Nothing is sent or saved.</p>
+    <div class="grid g2"><div class="field"><label for="ts_from">From</label><input id="ts_from" value="dispatch@example.com"></div><div class="field"><label for="ts_name">Name</label><input id="ts_name" value="Mike Jones"></div></div>
+    <div class="field"><label for="ts_subject">Subject</label><input id="ts_subject" placeholder="Salt Lake City, UT to Dallas, TX"></div>
+    <div class="field"><label for="ts_body">Body</label><textarea id="ts_body" rows="5" placeholder="Do you have anything on this lane? MC 123456"></textarea></div>
+    <div><button class="btn primary" type="button" id="ts_run">See what happens</button></div>
+    <div id="ts_out"></div>
+  </div>
+</dialog>
+
 <!-- award to a carrier booked outside the site -->
 <dialog id="bookDlg" style="width:min(640px, calc(100vw - 24px))">
   <form id="bookForm" method="dialog">
@@ -494,6 +545,7 @@ $$('.tabs button').forEach(b => b.onclick = () => {
   if (b.dataset.tab === 'carriers') loadCarriers();
   if (b.dataset.tab === 'settings') { fillSettings(); loadEmail(); loadCost(); }
   if (b.dataset.tab === 'email') loadEmailTab();
+  if (b.dataset.tab === 'inbox') loadInbox();
   if (b.dataset.tab === 'tracking') loadTracking();
   if (b.dataset.tab === 'profiles') loadProfiles();
   if (b.dataset.tab === 'lanes') loadLanesTab();
@@ -649,7 +701,7 @@ async function renderBids(id) {
       const diff = l.target_rate ? b.amount - l.target_rate : null;
       return `<tr>
       <td class="num">${i + 1}</td>
-      <td><button class="linkbtn" type="button" data-cp="${esc(b.mc)}" style="font-weight:700;text-decoration:none;color:var(--ink);font-size:15px">${esc(b.company)}</button>${flagChip(b.carrier_flag)}<div class="mono muted" style="font-size:12.5px">MC ${esc(b.mc)}</div>${counterChip(b.counter)}${b.notes ? `<div style="font-size:13px;margin-top:4px">“${esc(b.notes)}”</div>` : ''}</td>
+      <td><button class="linkbtn" type="button" data-cp="${esc(b.mc)}" style="font-weight:700;text-decoration:none;color:var(--ink);font-size:15px">${esc(b.company)}</button>${flagChip(b.carrier_flag)}<div class="mono muted" style="font-size:12.5px">MC ${esc(b.mc)}</div>${b.book_now ? '<div style="margin-top:3px"><span class="chip good" style="font-size:11.5px;padding:1px 7px">⚡ Book it now request</span></div>' : ''}${b.source === 'email' ? '<div style="margin-top:3px"><span class="chip" style="font-size:11.5px;padding:1px 7px">✉ by email</span></div>' : ''}${counterChip(b.counter)}${b.notes ? `<div style="font-size:13px;margin-top:4px">“${esc(b.notes)}”</div>` : ''}</td>
       <td>${b.highway_pass ? `<span class="chip eq" style="background:color-mix(in srgb, var(--good) 14%, transparent);color:var(--good)">✓ Pass</span>${b.highway_name && b.highway_name.toLowerCase() !== String(b.company).toLowerCase() ? `<div class="muted" style="font-size:12px;margin-top:3px">List: ${esc(b.highway_name)}</div>` : ''}`
         : '<span class="chip bad">✗ Not on list</span>'}</td>
       <td>${esc(b.contact_name)}<div style="font-size:13px">${esc(b.phone)}</div><div style="font-size:13px">${esc(b.email)}</div><div class="muted" style="font-size:12px">${esc(fmtDateTime(b.updated_at))}</div></td>
@@ -999,5 +1051,6 @@ $('#costReset').onclick = async () => {
 boot();
 </script>
 <script src="/static/admin-ops.js"></script>
+<script src="/static/admin-inbox.js"></script>
 </body>
 </html>

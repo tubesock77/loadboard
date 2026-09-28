@@ -102,10 +102,11 @@ const LOAD_FIELDS = ['ref', 'status', 'origin_city', 'origin_state', 'origin_zip
   'pickup_date', 'pickup_window', 'delivery_date', 'delivery_window', 'equipment', 'temp', 'weight', 'pallets', 'commodity',
   'stops', 'requirements', 'notes', 'target_rate', 'bid_deadline', 'contact_name', 'contact_phone', 'contact_email', 'miles', 'customer',
   'origin_name', 'origin_address', 'dest_name', 'dest_address', 'customer_rate', 'aljex_pro'];
+// Book it now is parked (Sep 28: Cody wants to pick every carrier). To bring it back, add 'book_rate' above and the field in admin.
 const PUBLIC_FIELDS = ['public_id', 'ref', 'status', 'origin_city', 'origin_state', 'origin_zip', 'dest_city', 'dest_state', 'dest_zip',
   'origin_lat', 'origin_lng', 'dest_lat', 'dest_lng', 'miles', 'pickup_date', 'pickup_window', 'delivery_date', 'delivery_window',
   'equipment', 'temp', 'weight', 'pallets', 'commodity', 'stops', 'requirements', 'notes', 'bid_deadline',
-  'contact_name', 'contact_phone', 'contact_email', 'updated_at'];
+  'contact_name', 'contact_phone', 'contact_email', 'updated_at', 'book_rate'];
 const STATUSES = ['draft', 'open', 'closed', 'awarded'];
 
 function cleanLoad(input) {
@@ -116,7 +117,7 @@ function cleanLoad(input) {
     if (typeof v === 'string') v = v.trim();
     if (v === '') v = null;
     if (['weight', 'stops'].includes(f) && v != null) v = Math.round(Number(String(v).replace(/[^0-9.]/g, ''))) || null;
-    if (['target_rate', 'miles', 'customer_rate'].includes(f) && v != null) v = Number(String(v).replace(/[^0-9.]/g, '')) || null;
+    if (['target_rate', 'miles', 'customer_rate', 'book_rate'].includes(f) && v != null) v = Number(String(v).replace(/[^0-9.]/g, '')) || null;
     if (['origin_state', 'dest_state'].includes(f) && v) v = String(v).toUpperCase().slice(0, 3);
     if (f === 'status' && !STATUSES.includes(v)) v = 'open';
     if (f === 'bid_deadline' && v) v = localToIso(v);
@@ -266,6 +267,7 @@ function publicConfig() {
 // Loads are entered in Admin (form, saved lanes, paste, repeat loads, CSV import). Sheet syncs were removed Sep 2026.
 // Loads that came from Smartsheet / Google Sheet become regular admin-managed loads.
 db.exec("UPDATE loads SET source = 'manual' WHERE source IN ('smartsheet', 'sheet')");
+db.exec('UPDATE loads SET book_rate = NULL WHERE book_rate IS NOT NULL');
 
 // ---------- carrier email list ----------
 const EMAIL_RE = /[^\s@,;<>]+@[^\s@,;<>]+\.[a-z]{2,}/gi;
@@ -324,7 +326,7 @@ function buildDigest(base, loadIds) {
   const rows = loads.map(l => {
     const url = `${base}/load/${l.public_id}`;
     const eq = [l.equipment, l.temp].filter(Boolean).join(' · ');
-    const det = [eq, l.commodity, l.weight ? Number(l.weight).toLocaleString() + ' lb' : '', l.miles ? Math.round(l.miles).toLocaleString() + ' mi' : ''].filter(Boolean).join(' · ');
+    const det = [eq, l.commodity, l.book_rate ? 'Book now ' + '$' + Number(l.book_rate).toLocaleString('en-US') : '', l.weight ? Number(l.weight).toLocaleString() + ' lb' : '', l.miles ? Math.round(l.miles).toLocaleString() + ' mi' : ''].filter(Boolean).join(' · ');
     return {
       text: `${place(l.origin_city, l.origin_state, l.origin_zip)} → ${place(l.dest_city, l.dest_state, l.dest_zip)}\n  Pick up ${fmtD(l.pickup_date)}${l.pickup_window ? ' ' + l.pickup_window : ''} · Deliver ${fmtD(l.delivery_date)}\n  ${det}${l.bid_deadline ? `\n  Bids due ${fmtDue(l.bid_deadline)}` : ''}\n  View & bid: ${url}`,
       html: `<tr>
@@ -376,20 +378,20 @@ function emailLayout(heading, body, cta) {
 function loadFacts(L) {
   const d = v => { if (!v) return ''; const t = new Date(String(v).slice(0, 10) + 'T12:00:00Z'); return isNaN(t) ? v : t.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' }); };
   const rows = [['Pick up', [d(L.pickup_date), L.pickup_window].filter(Boolean).join(' · ')], ['Deliver', [d(L.delivery_date), L.delivery_window].filter(Boolean).join(' · ')],
-    ['Equipment', [L.equipment, L.temp].filter(Boolean).join(' · ')], ['Commodity', L.commodity || ''], ['Weight', L.weight ? Number(L.weight).toLocaleString() + ' lb' : ''], ['Miles', L.miles ? Math.round(L.miles).toLocaleString() : '']]
+    ['Equipment', [L.equipment, L.temp].filter(Boolean).join(' · ')], ['Commodity', L.commodity || ''], ['Book it now', L.book_rate ? usd(L.book_rate) + ' all-in' : ''], ['Weight', L.weight ? Number(L.weight).toLocaleString() + ' lb' : ''], ['Miles', L.miles ? Math.round(L.miles).toLocaleString() : '']]
     .filter(r => r[1]);
   return `<table style="border-collapse:collapse;margin:10px 0;font:14px Arial,sans-serif">${rows.map(r => `<tr><td style="padding:3px 14px 3px 0;color:#586478">${r[0]}</td><td style="padding:3px 0"><b>${hx(r[1])}</b></td></tr>`).join('')}</table>`;
 }
 
-function emailsAfterBid(L, bid, prevLow) {
+function emailsAfterBid(L, bid, prevLow, opt = {}) {
   if (!mailer.configured()) return;
   const url = siteBase() ? `${siteBase()}/load/${L.public_id}` : '';
   const st = bidStats.get(L.id);
   const step = bidStep();
   const pass = !!qualify.lookupName(bid.mc) || !!db.prepare('SELECT 1 FROM qualified_carriers WHERE mc = ?').get(bid.mc);
   if (on('em_bid_alert')) {
-    mailer.sendQuiet({ to: notifyTo(), replyTo: bid.email || undefined, subject: `New bid ${usd(bid.amount)} · ${loadSubject(L)}`,
-      html: emailLayout(`New bid: ${usd(bid.amount)}${L.miles ? ` <span style="color:#586478;font-weight:400">(${usd(Math.round(bid.amount / L.miles * 100) / 100)}/mi)</span>` : ''}`,
+    mailer.sendQuiet({ to: notifyTo(), replyTo: bid.email || undefined, subject: `${opt.bookNow ? 'BOOK IT NOW request' : 'New bid'} ${usd(bid.amount)} · ${loadSubject(L)}`,
+      html: emailLayout(`${opt.bookNow ? '<span style="color:#B42318">Book it now:</span> ' : 'New bid: '}${usd(bid.amount)}${L.miles ? ` <span style="color:#586478;font-weight:400">(${usd(Math.round(bid.amount / L.miles * 100) / 100)}/mi)</span>` : ''}`,
         `<b>${hx(bid.company)}</b> · MC ${hx(bid.mc)} · ${pass ? '<span style="color:#17724A;font-weight:700">✓ Highway pass</span>' : '<span style="color:#B42318;font-weight:700">✗ Not on Highway list</span>'}<br>
          ${[bid.contact_name, bid.phone, bid.email].filter(Boolean).map(hx).join(' · ')}
          ${bid.notes ? `<br><i>“${hx(bid.notes)}”</i>` : ''}
@@ -397,7 +399,12 @@ function emailsAfterBid(L, bid, prevLow) {
          ${bid.email ? '<p style="color:#586478;font-size:13px">Reply to this email to reach the carrier.</p>' : ''}`,
         siteBase() ? { url: `${siteBase()}/admin`, label: 'Open admin' } : null) }, 'bid alert');
   }
-  if (on('em_bid_confirm') && bid.email) {
+  if (on('em_bid_confirm') && bid.email && !opt.skipConfirm && opt.bookNow) {
+    mailer.sendQuiet({ to: bid.email, subject: loadSubject(L),
+      html: emailLayout(`Booking request received: ${usd(bid.amount)}`,
+        `Thanks, ${hx(bid.contact_name || bid.company)}. You asked to book <b>${hx(laneOf(L))}</b>${L.ref ? ' (#' + hx(L.ref) + ')' : ''} at the posted rate of <b>${usd(bid.amount)}</b>.${loadFacts(L)}
+         <p>We'll confirm shortly and send the rate confirmation. Reply to this email with any questions.</p>`, url ? { url, label: 'View load' } : null) }, 'book-now confirmation');
+  } else if (on('em_bid_confirm') && bid.email && !opt.skipConfirm) {
     const lead = bid.amount <= st.low_bid;
     mailer.sendQuiet({ to: bid.email, subject: loadSubject(L),
       html: emailLayout(`Bid received: ${usd(bid.amount)}`,
@@ -474,7 +481,64 @@ function startDailyScheduler() {
 }
 
 const OPS = require('./lib/ops')({ send, fail, readBody, adminLoad, insertLoad, mailer, emailLayout, siteBase, notifyTo, loadSubject, laneOf, usd, hx,
-  TIMEZONE, bidStats, loadFacts, serveFile, emailsAfterAward, normalizeMC: qualify.normalizeMC });
+  TIMEZONE, bidStats, loadFacts, serveFile, emailsAfterAward, normalizeMC: qualify.normalizeMC, placeBid: (...a) => placeBid(...a), biddingOpen, carrierContacts, publicConfig, bidStep });
+
+// ---------- placing a bid (website form, email reply, book-it-now) ----------
+// Every path goes through here so the same rules apply. Returns { ok, ... } or { ok:false, status, error }.
+function placeBid(L, b, opts = {}) {
+  const bad = (error, status = 400) => ({ ok: false, status, error });
+  if (!L || L.status === 'draft') return bad('This load is no longer posted.', 404);
+  if (!biddingOpen(L)) return bad('Bidding is closed for this load.', 409);
+  const mc = qualify.normalizeMC(b.mc);
+  if (!mc) return bad('Enter your MC number (digits only, e.g. 123456).');
+  // Highway check happens behind the scenes for the admin view; it never blocks the bid.
+  qualify.check(mc).catch(() => {});
+  const bookNow = !!(b.book_now && L.book_rate);
+  const amount = bookNow ? Number(L.book_rate) : Math.round(Number(String(b.amount || '').replace(/[^0-9.]/g, '')) * 100) / 100;
+  if (!(amount >= 50 && amount <= 250000)) return bad('Enter your all-in rate in dollars, e.g. 2150.');
+  // Bid step (default $50): every bid is a multiple of the step (1,000 / 1,050 / 1,100 ...),
+  // and a new low must be at least one step under the current bid - including the lead carrier lowering their own.
+  // Booking at the posted book-it-now rate skips these rules.
+  const step = bidStep();
+  const fmt = n => '$' + Number(n).toLocaleString('en-US', { maximumFractionDigits: 2 });
+  if (step > 0 && !bookNow) {
+    if (Math.abs(amount / step - Math.round(amount / step)) > 1e-9) {
+      const down = Math.floor(amount / step) * step, up = down + step;
+      return bad(`Bids go in ${fmt(step)} steps, like ${fmt(1000)} or ${fmt(1000 + step)}. Try ${fmt(down)} or ${fmt(up)}.`);
+    }
+    const low = db.prepare('SELECT MIN(amount) AS low FROM bids WHERE load_id = ?').get(L.id).low;
+    const otherLow = db.prepare('SELECT MIN(amount) AS low FROM bids WHERE load_id = ? AND mc != ?').get(L.id, mc).low;
+    if (otherLow != null && amount === otherLow)
+      return bad(`${fmt(amount)} ties the current bid. Bid ${fmt(otherLow - step)} or less to take the lead.`);
+    if (low != null && amount < low && amount > low - step)
+      return bad(`Bids must be at least ${fmt(step)} under the current bid of ${fmt(low)}. Bid ${fmt(low - step)} or less.`);
+  }
+  const s = v => (v == null ? '' : String(v).trim().slice(0, 300));
+  const company = s(b.company), contact = s(b.contact_name), email = s(b.email), phone = s(b.phone);
+  if (!company) return bad('Enter your company name.');
+  if (!contact) return bad('Enter a contact name.');
+  if (!email && !phone) return bad('Enter a phone number or email so we can reach you.');
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return bad('That email address doesn\'t look right.');
+  const prevLow = db.prepare('SELECT * FROM bids WHERE load_id = ? ORDER BY amount ASC, created_at ASC LIMIT 1').get(L.id);
+  const notes = (bookNow ? '[BOOK IT NOW] ' : '') + s(b.notes).slice(0, 1000);
+  db.prepare(`INSERT INTO bids (load_id, mc, company, contact_name, email, phone, amount, notes, ip, book_now, source)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(load_id, mc) DO UPDATE SET company=excluded.company, contact_name=excluded.contact_name, email=excluded.email,
+      phone=excluded.phone, amount=excluded.amount, notes=excluded.notes, ip=excluded.ip, book_now=excluded.book_now, source=excluded.source, updated_at=datetime('now')`)
+    .run(L.id, mc, company, contact, email, phone, amount, notes.trim(), opts.ip || '', bookNow ? 1 : 0, opts.source || 'site');
+  // private token lets this carrier's browser check "am I the lowest?" later (My bids page)
+  let tok = db.prepare('SELECT token FROM bids WHERE load_id = ? AND mc = ?').get(L.id, mc).token;
+  if (!tok) { tok = crypto.randomBytes(12).toString('base64url'); db.prepare('UPDATE bids SET token = ? WHERE load_id = ? AND mc = ?').run(tok, L.id, mc); }
+  const st = bidStats.get(L.id);
+  const bid = db.prepare('SELECT * FROM bids WHERE load_id = ? AND mc = ?').get(L.id, mc);
+  if (bookNow) db.prepare(`INSERT INTO load_notes (load_id, kind, text) VALUES (?, 'note', ?)`).run(L.id, `BOOK IT NOW request from ${company} (MC ${mc}) at ${fmt(amount)}${opts.source === 'email' ? ' by email' : ''}`);
+  emailsAfterBid(L, bid, prevLow, { bookNow, skipConfirm: !!opts.skipConfirm });
+  return { ok: true, amount, token: tok, low_bid: st.low_bid, bid_count: st.bid_count, you_are_low: amount <= st.low_bid, book_now: bookNow, bid_id: bid.id,
+    next_max: bidStep() ? st.low_bid - bidStep() : null };
+}
+
+const INBOX = require('./lib/inbox')({ send, fail, readBody, limited, mailer, emailLayout, siteBase, notifyTo, usd, hx, laneOf, TIMEZONE,
+  placeBid: (...a) => placeBid(...a), biddingOpen, publicConfig, bidStats, normalizeMC: qualify.normalizeMC });
 
 // ---------- router ----------
 async function handle(req, res) {
@@ -492,6 +556,7 @@ async function handle(req, res) {
   if (m === 'GET' && p === '/healthz') return send(res, 200, 'ok');
 
   if (await OPS.publicRoutes(m, p, req, res)) return;
+  if (await INBOX.publicRoutes(m, p, req, res, ip)) return;
 
   // ---- public API ----
   if (m === 'GET' && p === '/api/config') return send(res, 200, publicConfig());
@@ -539,50 +604,9 @@ async function handle(req, res) {
   if (m === 'POST' && (mm = p.match(/^\/api\/loads\/([\w-]+)\/bids$/))) {
     if (limited('b:' + ip, 20, 600000)) return fail(res, 429, 'Too many bids from this connection. Please wait a few minutes.');
     const L = db.prepare('SELECT * FROM loads WHERE public_id = ?').get(mm[1]);
-    if (!L || L.status === 'draft') return fail(res, 404, 'This load is no longer posted.');
-    if (!biddingOpen(L)) return fail(res, 409, 'Bidding is closed for this load.');
-    const b = await readBody(req, 20000);
-    const mc = qualify.normalizeMC(b.mc);
-    if (!mc) return fail(res, 400, 'Enter your MC number (digits only, e.g. 123456).');
-    // Highway check happens behind the scenes for the admin view; it never blocks the bid.
-    qualify.check(mc).catch(() => {});
-    const amount = Math.round(Number(String(b.amount || '').replace(/[^0-9.]/g, '')) * 100) / 100;
-    if (!(amount >= 50 && amount <= 250000)) return fail(res, 400, 'Enter your all-in rate in dollars, e.g. 2150.');
-    // Bid step (default $50): every bid is a multiple of the step (1,000 / 1,050 / 1,100 ...),
-    // and a new low must be at least one step under the current bid - including the lead carrier lowering their own.
-    const step = bidStep();
-    if (step > 0) {
-      const fmt = n => '$' + Number(n).toLocaleString('en-US', { maximumFractionDigits: 2 });
-      if (Math.abs(amount / step - Math.round(amount / step)) > 1e-9) {
-        const down = Math.floor(amount / step) * step, up = down + step;
-        return fail(res, 400, `Bids go in ${fmt(step)} steps, like ${fmt(1000)} or ${fmt(1000 + step)}. Try ${fmt(down)} or ${fmt(up)}.`);
-      }
-      const low = db.prepare('SELECT MIN(amount) AS low FROM bids WHERE load_id = ?').get(L.id).low;
-      const otherLow = db.prepare('SELECT MIN(amount) AS low FROM bids WHERE load_id = ? AND mc != ?').get(L.id, mc).low;
-      if (otherLow != null && amount === otherLow)
-        return fail(res, 400, `${fmt(amount)} ties the current bid. Bid ${fmt(otherLow - step)} or less to take the lead.`);
-      if (low != null && amount < low && amount > low - step)
-        return fail(res, 400, `Bids must be at least ${fmt(step)} under the current bid of ${fmt(low)}. Bid ${fmt(low - step)} or less.`);
-    }
-    const s = v => (v == null ? '' : String(v).trim().slice(0, 300));
-    const company = s(b.company), contact = s(b.contact_name), email = s(b.email), phone = s(b.phone);
-    if (!company) return fail(res, 400, 'Enter your company name.');
-    if (!contact) return fail(res, 400, 'Enter a contact name.');
-    if (!email && !phone) return fail(res, 400, 'Enter a phone number or email so we can reach you.');
-    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return fail(res, 400, 'That email address doesn\'t look right.');
-    const prevLow = db.prepare('SELECT * FROM bids WHERE load_id = ? ORDER BY amount ASC, created_at ASC LIMIT 1').get(L.id);
-    db.prepare(`INSERT INTO bids (load_id, mc, company, contact_name, email, phone, amount, notes, ip)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(load_id, mc) DO UPDATE SET company=excluded.company, contact_name=excluded.contact_name, email=excluded.email,
-        phone=excluded.phone, amount=excluded.amount, notes=excluded.notes, ip=excluded.ip, updated_at=datetime('now')`)
-      .run(L.id, mc, company, contact, email, phone, amount, s(b.notes).slice(0, 1000), ip);
-    // private token lets this carrier's browser check "am I the lowest?" later (My bids page)
-    let tok = db.prepare('SELECT token FROM bids WHERE load_id = ? AND mc = ?').get(L.id, mc).token;
-    if (!tok) { tok = crypto.randomBytes(12).toString('base64url'); db.prepare('UPDATE bids SET token = ? WHERE load_id = ? AND mc = ?').run(tok, L.id, mc); }
-    const st = bidStats.get(L.id);
-    emailsAfterBid(L, db.prepare('SELECT * FROM bids WHERE load_id = ? AND mc = ?').get(L.id, mc), prevLow);
-    return send(res, 200, { ok: true, amount, token: tok, low_bid: st.low_bid, bid_count: st.bid_count, you_are_low: amount <= st.low_bid,
-      next_max: bidStep() ? st.low_bid - bidStep() : null });
+    const r = placeBid(L, await readBody(req, 20000), { ip, source: 'site' });
+    if (!r.ok) return fail(res, r.status || 400, r.error);
+    return send(res, 200, r);
   }
 
   // ---- admin API ----
@@ -602,6 +626,7 @@ async function handle(req, res) {
     if (m !== 'GET' && req.headers['x-requested-with'] !== 'loadboard') return fail(res, 403, 'Bad request origin.');
 
     if (await OPS.adminRoutes(m, p, url, req, res)) return;
+    if (await INBOX.adminRoutes(m, p, url, req, res)) return;
     if (m === 'GET' && p === '/api/admin/me') { const b = baseUrl(req); if (getSetting('base_url') !== b) setSetting('base_url', b); return send(res, 200, { ok: true }); }
     if (p === '/api/admin/email') {
       if (m === 'PUT') {
@@ -804,5 +829,6 @@ server.listen(PORT, () => {
   qualify.startAutoRefresh();
   startDailyScheduler();
   OPS.startRepeatScheduler();
+  INBOX.start();
   geo.resumePending();
 });

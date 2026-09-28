@@ -24,6 +24,17 @@ There are no third-party packages. It needs only Node.js 22.13 or newer and uses
 - **Tracking** (after award): Awarded → Rate con sent (Aljex) → Dispatched → Picked up → Delivered → Invoiced, with dates. Each load has check calls and notes, documents (BOL, POD, signed rate con — up to 12 MB each, stored on the disk), Aljex Pro #, customer rate and margin. Rate confirmations are sent from Aljex, not from this site.
 - **Carriers**: everyone who has bid, with lanes, bids, wins, Highway status, contacts and history. Flag carriers **★ Preferred** or **Do not use** and keep private notes. "Do not use" shows in the Bids window and warns you before an award.
 - **Counter offers**: in the Bids window, **Counter** emails the carrier a link where they accept or decline. Accepting updates their bid; you get an email either way, then award as usual.
+- **Inbox (loads@ auto-replies, no AI)**: the site reads new mail to loads@ every 2 minutes and answers carriers with canned replies filled from the board:
+  - Lane requests ("SLC, UT to Dallas, TX", "CO-TX", "loads out of Colorado") get the matching loads written out in the email (dates, equipment, weight, miles, current bid, Book it now price) and a lane alert is saved.
+  - "Truck empty in Ogden Friday" gets loads picking up near that date.
+  - "2400 MC 123456 load #48213", or a rate replied to one of our emails, is entered as a bid (same bid rules as the site) and confirmed.
+  - "I'll take it" with no rate is left for you.
+  - "Remove" takes them off the daily list and alerts.
+  - Out-of-office, bounces, newsletters and no-reply senders are ignored; anything else is left for you. Max 4 auto replies per sender per day.
+  - Modes: **Off**, **Review** (drafts wait for you to click Send; "remove" requests are handled right away), **Automatic**. **Try an email** shows what it would do. **Replies & wording** edits every canned line, including "Why haul with us" lines added to every reply.
+  - Needs the "Application Mail.Read" role for the LOADBOARD app in Exchange, scoped to the loads@ mailbox (Admin → Inbox shows the one-line command).
+- **Lane alerts**: carriers who email about a lane, or sign up on the board ("Get loads on your lanes by email"), are emailed when a matching load posts — once per load, with a stop link. Listed and removable in Admin → Inbox.
+- **Book it now** is turned off (you choose every carrier). The code is kept so it can be switched back on later.
 - **Reports**: loads posted and covered, bids per load, revenue, carrier pay and margin, by customer, lane and carrier, for any date range.
 - **Import loads (one time)**: upload a CSV or XLSX with many loads at once. Click **Download template** in that window for the column names. Common names also work, such as "Pickup City" or "Ship Date".
 - **Bids**: bids are listed low to high, each marked **✓ Pass** or **✗ Not on list** for Highway, with $/mi and each bid's difference from your target. **Award** marks the load as covered and closes bidding. **Reopen for bids** undoes that.
@@ -104,6 +115,7 @@ server.js          web server, API, admin login
 lib/db.js          database tables
 lib/qualify.js     Highway list: reads Google Sheet / Excel / upload, checks MC numbers
 lib/cost.js        break-even / market / margin estimate
+lib/inbox.js       loads@ inbox reader, rules, canned replies, lane alerts
 lib/ops.js         address book, saved lanes + repeat posting, tracking, documents, carrier profiles, counters, reports
 public/admin-ops.js  admin screens for the above
 public/counter.html  carrier's accept/decline page for a counter offer
