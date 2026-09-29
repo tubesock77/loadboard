@@ -101,12 +101,12 @@ function cookie(req, value, maxAge) {
 const LOAD_FIELDS = ['ref', 'status', 'origin_city', 'origin_state', 'origin_zip', 'dest_city', 'dest_state', 'dest_zip',
   'pickup_date', 'pickup_window', 'delivery_date', 'delivery_window', 'equipment', 'temp', 'weight', 'pallets', 'commodity',
   'stops', 'requirements', 'notes', 'target_rate', 'bid_deadline', 'contact_name', 'contact_phone', 'contact_email', 'miles', 'customer',
-  'origin_name', 'origin_address', 'dest_name', 'dest_address', 'customer_rate', 'aljex_pro'];
+  'origin_name', 'origin_address', 'dest_name', 'dest_address', 'customer_rate', 'aljex_pro', 'post_rate', 'lane_id'];
 // Book it now is parked (Sep 28: Cody wants to pick every carrier). To bring it back, add 'book_rate' above and the field in admin.
 const PUBLIC_FIELDS = ['public_id', 'ref', 'status', 'origin_city', 'origin_state', 'origin_zip', 'dest_city', 'dest_state', 'dest_zip',
   'origin_lat', 'origin_lng', 'dest_lat', 'dest_lng', 'miles', 'pickup_date', 'pickup_window', 'delivery_date', 'delivery_window',
   'equipment', 'temp', 'weight', 'pallets', 'commodity', 'stops', 'requirements', 'notes', 'bid_deadline',
-  'contact_name', 'contact_phone', 'contact_email', 'updated_at', 'book_rate'];
+  'contact_name', 'contact_phone', 'contact_email', 'updated_at', 'book_rate', 'post_rate'];
 const STATUSES = ['draft', 'open', 'closed', 'awarded'];
 
 function cleanLoad(input) {
@@ -116,8 +116,9 @@ function cleanLoad(input) {
     let v = input[f];
     if (typeof v === 'string') v = v.trim();
     if (v === '') v = null;
+    if (f === 'lane_id') v = v == null ? null : (parseInt(v, 10) || null);
     if (['weight', 'stops'].includes(f) && v != null) v = Math.round(Number(String(v).replace(/[^0-9.]/g, ''))) || null;
-    if (['target_rate', 'miles', 'customer_rate', 'book_rate'].includes(f) && v != null) v = Number(String(v).replace(/[^0-9.]/g, '')) || null;
+    if (['target_rate', 'miles', 'customer_rate', 'book_rate', 'post_rate'].includes(f) && v != null) v = Number(String(v).replace(/[^0-9.]/g, '')) || null;
     if (['origin_state', 'dest_state'].includes(f) && v) v = String(v).toUpperCase().slice(0, 3);
     if (f === 'status' && !STATUSES.includes(v)) v = 'open';
     if (f === 'bid_deadline' && v) v = localToIso(v);
@@ -287,6 +288,9 @@ function carrierContacts() {
   db.prepare(`SELECT b.mc, b.email, b.company, b.contact_name, b.phone, COUNT(*) AS bid_count, MAX(b.updated_at) AS last_bid
     FROM bids b WHERE b.email != '' GROUP BY b.mc, lower(b.email) ORDER BY last_bid DESC`).all()
     .forEach(r => (r.email.match(EMAIL_RE) || []).forEach(e => add(e, { ...r, source: 'bid' })));
+  // carriers you added by hand (or from the inbox look-back)
+  db.prepare(`SELECT mc, email, company, name AS contact_name, phone FROM carriers_manual`).all()
+    .forEach(r => (String(r.email).match(EMAIL_RE) || []).forEach(e => add(e, { ...r, source: 'added by you', bid_count: 0 })));
   // emails from the Highway sheet (if it has an email column)
   db.prepare(`SELECT mc, name, email FROM qualified_carriers WHERE email IS NOT NULL AND email != ''`).all()
     .forEach(r => (r.email.match(EMAIL_RE) || []).forEach(e => add(e, { mc: r.mc, company: r.name, source: 'highway sheet', bid_count: 0 })));
@@ -311,7 +315,7 @@ function baseUrl(req) {
   return process.env.PUBLIC_URL ? process.env.PUBLIC_URL.replace(/\/$/, '') : `${proto}://${req.headers.host}`;
 }
 
-function buildDigest(base, loadIds) {
+function buildDigest(base, loadIds, token) {
   const cfg = publicConfig();
   const pick = Array.isArray(loadIds) && loadIds.length ? new Set(loadIds.map(Number)) : null;
   const loads = db.prepare(`SELECT * FROM loads WHERE status = 'open' ORDER BY pickup_date IS NULL, pickup_date, id`).all().filter(biddingOpen).filter(l => !pick || pick.has(l.id));
@@ -326,16 +330,17 @@ function buildDigest(base, loadIds) {
   const rows = loads.map(l => {
     const url = `${base}/load/${l.public_id}`;
     const eq = [l.equipment, l.temp].filter(Boolean).join(' · ');
-    const det = [eq, l.commodity, l.book_rate ? 'Book now ' + '$' + Number(l.book_rate).toLocaleString('en-US') : '', l.weight ? Number(l.weight).toLocaleString() + ' lb' : '', l.miles ? Math.round(l.miles).toLocaleString() + ' mi' : ''].filter(Boolean).join(' · ');
+    const det = [eq, l.commodity, l.weight ? Number(l.weight).toLocaleString() + ' lb' : '', l.miles ? Math.round(l.miles).toLocaleString() + ' mi' : ''].filter(Boolean).join(' · ');
     return {
       text: `${place(l.origin_city, l.origin_state, l.origin_zip)} → ${place(l.dest_city, l.dest_state, l.dest_zip)}\n  Pick up ${fmtD(l.pickup_date)}${l.pickup_window ? ' ' + l.pickup_window : ''} · Deliver ${fmtD(l.delivery_date)}\n  ${det}${l.bid_deadline ? `\n  Bids due ${fmtDue(l.bid_deadline)}` : ''}\n  View & bid: ${url}`,
       html: `<tr>
         <td style="padding:12px 10px;border-bottom:1px solid #D6DCE6;vertical-align:top">
           <div style="font:700 16px Arial,sans-serif;color:#141B27;text-transform:uppercase">${h(place(l.origin_city, l.origin_state, l.origin_zip))} &rarr; ${h(place(l.dest_city, l.dest_state, l.dest_zip))}</div>
-          <div style="font:14px Arial,sans-serif;color:#586478;margin-top:4px">${h(det)}${l.ref ? ' · #' + h(l.ref) : ''}</div></td>
+          <div style="font:14px Arial,sans-serif;color:#586478;margin-top:4px">${h(det)}</div>${l.post_rate ? `<div style="font:700 15px Arial,sans-serif;color:#17724A;margin-top:4px">Rate ${h('$' + Number(l.post_rate).toLocaleString('en-US'))}</div>` : ''}</td>
         <td style="padding:12px 10px;border-bottom:1px solid #D6DCE6;vertical-align:top;font:14px Arial,sans-serif;color:#141B27;white-space:nowrap">PU ${h(fmtD(l.pickup_date))}<br>DEL ${h(fmtD(l.delivery_date))}${l.bid_deadline ? `<br><span style="color:#B7780A">Due ${h(fmtDue(l.bid_deadline))}</span>` : ''}</td>
         <td style="padding:12px 10px;border-bottom:1px solid #D6DCE6;vertical-align:top;text-align:right">
-          <a href="${h(url)}" style="display:inline-block;background:#1D4F9E;color:#ffffff;font:700 14px Arial,sans-serif;text-decoration:none;padding:8px 14px;border-radius:6px">View &amp; bid</a></td></tr>`,
+          ${token ? `${l.post_rate ? `<a href="${h(`${base}/o/${token}/${l.public_id}?a=cover`)}" style="display:inline-block;background:#17724A;color:#ffffff;font:700 13px Arial,sans-serif;text-decoration:none;padding:8px 12px;border-radius:6px;margin:0 0 6px;white-space:nowrap">Can cover</a><br>` : ''}<a href="${h(`${base}/o/${token}/${l.public_id}?a=offer`)}" style="display:inline-block;background:#1D4F9E;color:#ffffff;font:700 13px Arial,sans-serif;text-decoration:none;padding:8px 12px;border-radius:6px;white-space:nowrap">Make an offer</a>`
+            : `<a href="${h(url)}" style="display:inline-block;background:#1D4F9E;color:#ffffff;font:700 14px Arial,sans-serif;text-decoration:none;padding:8px 14px;border-radius:6px">View &amp; bid</a>`}</td></tr>`,
     };
   });
   const text = `${cfg.company}\nAvailable loads — ${day}\n\n` + (rows.length ? rows.map(r => r.text).join('\n\n') : 'No open loads right now.') +
@@ -378,7 +383,7 @@ function emailLayout(heading, body, cta) {
 function loadFacts(L) {
   const d = v => { if (!v) return ''; const t = new Date(String(v).slice(0, 10) + 'T12:00:00Z'); return isNaN(t) ? v : t.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' }); };
   const rows = [['Pick up', [d(L.pickup_date), L.pickup_window].filter(Boolean).join(' · ')], ['Deliver', [d(L.delivery_date), L.delivery_window].filter(Boolean).join(' · ')],
-    ['Equipment', [L.equipment, L.temp].filter(Boolean).join(' · ')], ['Commodity', L.commodity || ''], ['Book it now', L.book_rate ? usd(L.book_rate) + ' all-in' : ''], ['Weight', L.weight ? Number(L.weight).toLocaleString() + ' lb' : ''], ['Miles', L.miles ? Math.round(L.miles).toLocaleString() : '']]
+    ['Equipment', [L.equipment, L.temp].filter(Boolean).join(' · ')], ['Commodity', L.commodity || ''], ['Rate', L.post_rate ? usd(L.post_rate) : ''], ['Weight', L.weight ? Number(L.weight).toLocaleString() + ' lb' : ''], ['Miles', L.miles ? Math.round(L.miles).toLocaleString() : '']]
     .filter(r => r[1]);
   return `<table style="border-collapse:collapse;margin:10px 0;font:14px Arial,sans-serif">${rows.map(r => `<tr><td style="padding:3px 14px 3px 0;color:#586478">${r[0]}</td><td style="padding:3px 0"><b>${hx(r[1])}</b></td></tr>`).join('')}</table>`;
 }
@@ -390,12 +395,12 @@ function emailsAfterBid(L, bid, prevLow, opt = {}) {
   const step = bidStep();
   const pass = !!qualify.lookupName(bid.mc) || !!db.prepare('SELECT 1 FROM qualified_carriers WHERE mc = ?').get(bid.mc);
   if (on('em_bid_alert')) {
-    mailer.sendQuiet({ to: notifyTo(), replyTo: bid.email || undefined, subject: `${opt.bookNow ? 'BOOK IT NOW request' : 'New bid'} ${usd(bid.amount)} · ${loadSubject(L)}`,
-      html: emailLayout(`${opt.bookNow ? '<span style="color:#B42318">Book it now:</span> ' : 'New bid: '}${usd(bid.amount)}${L.miles ? ` <span style="color:#586478;font-weight:400">(${usd(Math.round(bid.amount / L.miles * 100) / 100)}/mi)</span>` : ''}`,
+    mailer.sendQuiet({ to: notifyTo(), replyTo: bid.email || undefined, subject: `${opt.bookNow ? 'BOOK IT NOW request ' + usd(bid.amount) : opt.kind === 'cover' ? 'CAN COVER at ' + usd(bid.amount) : opt.kind === 'offer' ? 'Offer ' + usd(bid.amount) : 'New bid ' + usd(bid.amount)} · ${loadSubject(L)}`,
+      html: emailLayout(`${opt.bookNow ? '<span style="color:#B42318">Book it now:</span> ' : opt.kind === 'cover' ? '<span style="color:#17724A">Can cover at your rate:</span> ' : opt.kind === 'offer' ? 'Offer: ' : 'New bid: '}${usd(bid.amount)}${L.miles ? ` <span style="color:#586478;font-weight:400">(${usd(Math.round(bid.amount / L.miles * 100) / 100)}/mi)</span>` : ''}`,
         `<b>${hx(bid.company)}</b> · MC ${hx(bid.mc)} · ${pass ? '<span style="color:#17724A;font-weight:700">✓ Highway pass</span>' : '<span style="color:#B42318;font-weight:700">✗ Not on Highway list</span>'}<br>
          ${[bid.contact_name, bid.phone, bid.email].filter(Boolean).map(hx).join(' · ')}
          ${bid.notes ? `<br><i>“${hx(bid.notes)}”</i>` : ''}
-         <p style="margin:12px 0 0"><b>${hx(laneOf(L))}</b>${L.ref ? ' · #' + hx(L.ref) : ''}<br>Current bid ${usd(st.low_bid)} · ${st.bid_count} bid${st.bid_count === 1 ? '' : 's'}${L.target_rate ? ` · target ${usd(L.target_rate)}` : ''}</p>
+         <p style="margin:12px 0 0"><b>${hx(laneOf(L))}</b>${L.ref ? ' · #' + hx(L.ref) : ''}<br>${L.post_rate ? `Your posted rate ${usd(L.post_rate)} · ` : ''}Low bid ${usd(st.low_bid)} · ${st.bid_count} bid${st.bid_count === 1 ? '' : 's'}${L.target_rate ? ` · target ${usd(L.target_rate)}` : ''}</p>
          ${bid.email ? '<p style="color:#586478;font-size:13px">Reply to this email to reach the carrier.</p>' : ''}`,
         siteBase() ? { url: `${siteBase()}/admin`, label: 'Open admin' } : null) }, 'bid alert');
   }
@@ -455,9 +460,18 @@ async function sendDailyEmail(base, onlyPass, loadIds, emails) {
   if (Array.isArray(emails)) { const want = new Set(emails.map(e => String(e).toLowerCase())); list = carrierContacts().filter(c => !c.opted_out && want.has(c.email)).map(c => c.email); }
   if (!list.length) return { sent: 0, recipients: 0, skipped: 'No carrier email addresses to send to.' };
   let sent = 0;
-  for (let i = 0; i < list.length; i += 50) { // 50 BCC per message keeps well inside Microsoft limits
-    await mailer.send({ to: mailer.from(), bcc: list.slice(i, i + 50), subject: d.subject, html: d.html });
-    sent++;
+  if (list.length <= 500) {
+    // one email per carrier, so each gets their own "Can cover" / "Make an offer" buttons
+    for (const e of list) {
+      const dd = buildDigest(base || siteBase(), loadIds, INBOX.linkToken(e));
+      try { await mailer.send({ to: e, subject: dd.subject, html: dd.html }); sent++; }
+      catch (err) { console.warn('[email] daily list to', e, 'failed:', err.message); }
+    }
+  } else {
+    for (let i = 0; i < list.length; i += 50) { // big lists: 50 BCC per message keeps well inside Microsoft limits
+      await mailer.send({ to: mailer.from(), bcc: list.slice(i, i + 50), subject: d.subject, html: d.html });
+      sent++;
+    }
   }
   setSetting('daily_last_sent', new Date().toISOString());
   return { sent, recipients: list.length, loads: d.count };
@@ -501,7 +515,7 @@ function placeBid(L, b, opts = {}) {
   // Booking at the posted book-it-now rate skips these rules.
   const step = bidStep();
   const fmt = n => '$' + Number(n).toLocaleString('en-US', { maximumFractionDigits: 2 });
-  if (step > 0 && !bookNow) {
+  if (step > 0 && !bookNow && !opts.bypassRules) {
     if (Math.abs(amount / step - Math.round(amount / step)) > 1e-9) {
       const down = Math.floor(amount / step) * step, up = down + step;
       return bad(`Bids go in ${fmt(step)} steps, like ${fmt(1000)} or ${fmt(1000 + step)}. Try ${fmt(down)} or ${fmt(up)}.`);
@@ -532,13 +546,13 @@ function placeBid(L, b, opts = {}) {
   const st = bidStats.get(L.id);
   const bid = db.prepare('SELECT * FROM bids WHERE load_id = ? AND mc = ?').get(L.id, mc);
   if (bookNow) db.prepare(`INSERT INTO load_notes (load_id, kind, text) VALUES (?, 'note', ?)`).run(L.id, `BOOK IT NOW request from ${company} (MC ${mc}) at ${fmt(amount)}${opts.source === 'email' ? ' by email' : ''}`);
-  emailsAfterBid(L, bid, prevLow, { bookNow, skipConfirm: !!opts.skipConfirm });
+  emailsAfterBid(L, bid, prevLow, { bookNow, skipConfirm: !!opts.skipConfirm, kind: opts.source });
   return { ok: true, amount, token: tok, low_bid: st.low_bid, bid_count: st.bid_count, you_are_low: amount <= st.low_bid, book_now: bookNow, bid_id: bid.id,
     next_max: bidStep() ? st.low_bid - bidStep() : null };
 }
 
 const INBOX = require('./lib/inbox')({ send, fail, readBody, limited, mailer, emailLayout, siteBase, notifyTo, usd, hx, laneOf, TIMEZONE,
-  placeBid: (...a) => placeBid(...a), biddingOpen, publicConfig, bidStats, normalizeMC: qualify.normalizeMC });
+  placeBid: (...a) => placeBid(...a), biddingOpen, publicConfig, bidStats, normalizeMC: qualify.normalizeMC, serveFile, bidStep });
 
 // ---------- router ----------
 async function handle(req, res) {

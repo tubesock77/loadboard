@@ -39,7 +39,7 @@ function openLoadFromLane(lane) {
 function applyLaneToForm(lane) {
   const f = $('#loadForm');
   Object.entries(lane.data || {}).forEach(([k, v]) => { if (f.elements[k]) f.elements[k].value = v; });
-  $('#f_lane').value = String(lane.id);
+  $('#f_lane').value = String(lane.id); $('#f_lane_id').value = String(lane.id);
   $('#loadMsg').innerHTML = `<div class="notice ok">Filled from saved lane <b>${esc(lane.name)}</b>. Set the dates and bids-due time, then save.</div>`;
   f.elements.pickup_date.focus();
 }
@@ -301,12 +301,12 @@ function renderProfiles() {
   if (!list.length) { $('#cpTable').innerHTML = `<tbody><tr><td class="empty">${cps.length ? 'No carriers match.' : 'No carriers yet. Everyone who bids shows up here.'}</td></tr></tbody>`; return; }
   $('#cpTable').innerHTML = `<thead><tr><th>Carrier</th><th>Highway</th><th>Lanes bid</th><th class="num">Bids</th><th class="num">Won</th><th>Last bid</th><th></th></tr></thead><tbody>` +
     list.map(c => `<tr style="${c.flag === 'dnu' ? 'opacity:.65' : ''}">
-      <td><b>${esc(c.company || c.highway_name || '—')}</b>${flagChip(c.flag)}<div class="mono muted sm">MC ${esc(c.mc)}${c.hq_state ? ' · based ' + esc(c.hq_state) : ''}</div>${c.notes ? `<div class="sm muted" style="max-width:320px">${esc(c.notes.slice(0, 90))}</div>` : ''}</td>
+      <td><b>${esc(c.company || c.highway_name || '—')}</b>${flagChip(c.flag)}${c.manual ? ' <span class="chip" style="font-size:11px;padding:0 6px">Added by you</span>' : ''}<div class="mono muted sm">${c.manual && String(c.mc).startsWith('email:') ? esc(c.email) : 'MC ' + esc(c.mc)}${c.hq_state ? ' · based ' + esc(c.hq_state) : ''}</div>${c.notes ? `<div class="sm muted" style="max-width:320px">${esc(c.notes.slice(0, 90))}</div>` : ''}</td>
       <td>${c.highway_pass ? '<span class="chip good">✓ Pass</span>' : '<span class="chip bad">✗ Not on list</span>'}</td>
       <td>${c.lanes.slice(0, 5).map(x => `<span class="lanetag">${esc(x.o)}→${esc(x.d)}${x.n > 1 ? ' ×' + x.n : ''}</span>`).join(' ') || '<span class="muted">—</span>'}${c.lanes.length > 5 ? ` <span class="muted">+${c.lanes.length - 5}</span>` : ''}</td>
       <td class="num">${c.bids}</td><td class="num">${c.wins || 0}</td>
       <td class="sm" style="white-space:nowrap">${c.last_bid ? esc(fmtDay(c.last_bid)) : '—'}</td>
-      <td><button class="btn sm" data-cp="${esc(c.mc)}">Open</button></td></tr>`).join('') + '</tbody>';
+      <td><button class="btn sm" data-cp="${esc(c.manual ? 'email:' + c.email : c.mc)}">Open</button></td></tr>`).join('') + '</tbody>';
 }
 $('#cpTable').onclick = e => { const b = e.target.closest('[data-cp]'); if (b) openCarrier(b.dataset.cp); };
 async function openCarrier(mc) {
@@ -346,7 +346,7 @@ openBids = async function (l) { openBidsId = l.id; return _openBids(l); };
 const LANE_KEYS = [['origin_name', 'Shipper name'], ['origin_address', 'Shipper address'], ['origin_city', 'Origin city'], ['origin_state', 'Origin state'], ['origin_zip', 'Origin ZIP'],
   ['dest_name', 'Receiver name'], ['dest_address', 'Receiver address'], ['dest_city', 'Dest city'], ['dest_state', 'Dest state'], ['dest_zip', 'Dest ZIP'],
   ['pickup_window', 'Pickup window'], ['delivery_window', 'Delivery window'], ['equipment', 'Equipment'], ['temp', 'Temp'], ['weight', 'Weight (lb)'], ['pallets', 'Pallets'],
-  ['commodity', 'Commodity'], ['stops', 'Extra stops'], ['miles', 'Miles'], ['customer', 'Customer'], ['customer_rate', 'Customer rate $'], ['target_rate', 'Target carrier rate $'],
+  ['commodity', 'Commodity'], ['stops', 'Extra stops'], ['miles', 'Miles'], ['customer', 'Customer'], ['customer_rate', 'Customer rate $'], ['target_rate', 'Target carrier rate $'], ['post_rate', 'Rate to post $ (shown to carriers)'],
   ['requirements', 'Requirements (shown to carriers)'], ['notes', 'Notes (shown to carriers)']];
 let editingLane = null;
 async function loadLanesTab() { await refreshRefs(); renderLanes(); renderFacs(); }
@@ -398,8 +398,11 @@ $('#laneForm').onsubmit = async e => {
   const body = { name: $('#ln_name').value, data, repeat_on: $('#ln_repeat').checked, repeat_days: $$('#ln_days input:checked').map(x => x.value).join(','),
     repeat_time: $('#ln_time').value, repeat_pickup_days: $('#ln_pu').value, repeat_transit_days: $('#ln_tr').value.trim(), repeat_bid_hours: $('#ln_bh').value };
   if (body.repeat_on && !body.repeat_days) { toast('Pick at least one day'); return; }
-  await api(editingLane ? `/api/admin/lanes/${editingLane.id}` : '/api/admin/lanes', { method: editingLane ? 'PUT' : 'POST', body });
-  $('#laneDlg').close(); toast(body.repeat_on ? 'Lane saved — it will post itself on schedule' : 'Lane saved'); await refreshRefs(); renderLanes();
+  const wasNew = !editingLane;
+  const savedLane = await api(editingLane ? `/api/admin/lanes/${editingLane.id}` : '/api/admin/lanes', { method: editingLane ? 'PUT' : 'POST', body });
+  $('#laneDlg').close(); await refreshRefs(); renderLanes();
+  if (wasNew) { toast('Lane saved — now add the carriers who run it'); openLane(savedLane); }
+  else toast(body.repeat_on ? 'Lane saved — it will post itself on schedule' : 'Lane saved');
 };
 $('#laneDel').onclick = async () => { if (!confirm(`Delete lane "${editingLane.name}"? Loads already posted from it are kept.`)) return; await api(`/api/admin/lanes/${editingLane.id}`, { method: 'DELETE' }); $('#laneDlg').close(); await refreshRefs(); renderLanes(); };
 
@@ -507,3 +510,15 @@ $('#bookForm').onsubmit = async e => {
     renderBids(l.id); refreshLoads();
   } catch (err) { $('#bookMsg').innerHTML = `<div class="notice err">${esc(err.message)}</div>`; }
 };
+
+// "Rate to post" starts from the target rate: typing a target fills it in until you change it yourself
+(() => {
+  const f = $('#loadForm'); if (!f) return;
+  let last = '';
+  f.elements.target_rate.addEventListener('focus', () => { last = f.elements.target_rate.value; });
+  f.elements.target_rate.addEventListener('input', () => {
+    const pr = f.elements.post_rate; if (!pr) return;
+    if (!pr.value || pr.value === last) pr.value = f.elements.target_rate.value;
+    last = f.elements.target_rate.value;
+  });
+})();

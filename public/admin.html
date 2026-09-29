@@ -81,7 +81,7 @@
           <label><input type="radio" name="ibmode" value="review"> Review <span class="hint">(replies wait for you)</span></label>
           <label><input type="radio" name="ibmode" value="auto"> Automatic <span class="hint">(sends on its own)</span></label>
         </div>
-        <div class="actions"><span id="ibStatus" class="muted sm"></span><button class="btn sm" type="button" id="ibCheck">Check now</button><button class="btn sm" type="button" id="ibTplBtn">Replies &amp; wording</button><button class="btn sm" type="button" id="ibTestBtn">Try an email</button></div>
+        <div class="actions"><span id="ibStatus" class="muted sm"></span><button class="btn sm" type="button" id="ibCheck">Check now</button><button class="btn sm" type="button" id="ibTplBtn">Replies &amp; wording</button><button class="btn sm" type="button" id="ibTestBtn">Try an email</button><button class="btn sm" type="button" id="ibLookBtn">Look back through past emails</button></div>
       </div>
       <div id="ibSetup"></div>
       <div class="toolbar">
@@ -91,7 +91,7 @@
       <div id="ibList" class="iblist"></div>
       <div class="toolbar" style="margin-top:26px">
         <div class="left"><h2 style="font-size:24px">Lane alerts</h2><span class="muted sm">Carriers who asked about a lane, or signed up on the board. They're emailed when a matching load posts.</span></div>
-        <div class="right"><label class="sm" style="display:inline-flex;gap:6px;align-items:center;font-weight:600"><input type="checkbox" id="alertsOn" style="width:auto"> Send lane alerts</label><button class="btn sm" type="button" id="newAlert">+ Add alert</button></div>
+        <div class="right"><label class="sm" style="display:inline-flex;gap:6px;align-items:center;font-weight:600"><input type="checkbox" id="alertsOn" style="width:auto"> Send automatically <span class="hint">(off = you send from the list when you post)</span></label><button class="btn sm" type="button" id="newAlert">+ Add alert</button></div>
       </div>
       <div class="panel table-wrap"><table class="data" id="alertTable"></table></div>
     </section>
@@ -115,6 +115,7 @@
         <div class="left"><h2 style="font-size:24px">Carriers</h2><span class="muted" style="font-size:14px">Everyone who has bid, plus anyone you've flagged.</span></div>
         <div class="right">
           <input id="cpSearch" type="search" placeholder="Name or MC" style="width:180px" aria-label="Search carriers">
+          <button class="btn" type="button" id="cpAdd">+ Add carrier</button>
           <select id="cpFilter" style="width:auto" aria-label="Filter"><option value="">All</option><option value="preferred">★ Preferred</option><option value="dnu">Do not use</option><option value="pass">Highway pass</option><option value="fail">Not on Highway list</option></select>
         </div>
       </div>
@@ -317,6 +318,7 @@
           <div class="actions" style="margin-top:6px"><button class="btn sm primary" type="button" id="pasteFill">Fill the form</button><span id="pasteMsg" class="muted" style="font-size:13px"></span></div>
         </div>
       </div>
+      <input type="hidden" name="lane_id" id="f_lane_id">
       <fieldset><legend>Lane</legend>
         <div class="grid g2 facrow">
           <div class="field"><label for="f_origin_fac">Shipper <span class="hint">(address book)</span></label><select id="f_origin_fac" data-side="origin"><option value="">—</option></select></div>
@@ -369,7 +371,8 @@
           <div class="field"><label for="f_customer">Customer</label><input id="f_customer" name="customer" list="custList"><datalist id="custList"></datalist></div>
           <div class="field"><label for="f_customer_rate">Customer rate $</label><input id="f_customer_rate" name="customer_rate" inputmode="decimal"></div>
           <div class="field"><label for="f_target_rate">Target carrier rate $</label><input id="f_target_rate" name="target_rate" inputmode="decimal"></div>
-          <div class="field" style="grid-column:span 3"><label for="f_miles">Miles <span class="hint">(blank = calculate from route)</span></label><input id="f_miles" name="miles" inputmode="numeric"></div>
+          <div class="field"><label for="f_post_rate">Rate to post $ <span class="hint" style="color:var(--good)">(shown to carriers in emails)</span></label><input id="f_post_rate" name="post_rate" inputmode="decimal" placeholder="blank = ask for offers"></div>
+          <div class="field" style="grid-column:span 2"><label for="f_miles">Miles <span class="hint">(blank = calculate from route)</span></label><input id="f_miles" name="miles" inputmode="numeric"></div>
         </div>
       </fieldset>
       <div id="loadMsg"></div>
@@ -428,6 +431,51 @@
   </div>
 </dialog>
 
+<!-- email a load to carriers (preview, then send) -->
+<dialog id="notifyDlg" style="width:min(820px, calc(100vw - 24px))">
+  <div class="dlg-head"><h2 id="ntTitle">Email this load</h2><button class="x" type="button" data-close aria-label="Close">×</button></div>
+  <div class="dlg-body">
+    <p class="help" style="margin:0" id="ntIntro"></p>
+    <div class="actions" style="justify-content:space-between"><div class="actions"><button class="linkbtn" type="button" id="ntAll">Select all</button><button class="linkbtn" type="button" id="ntNone">None</button></div><span class="muted sm" id="ntCount"></span></div>
+    <div id="ntList" class="ntlist"></div>
+    <div class="field" style="position:relative"><label for="ntSearch">Add someone else</label><input id="ntSearch" placeholder="Name, MC or email from your Highway list — or type an email" autocomplete="off"><div id="ntResults" class="results" hidden></div></div>
+    <div id="ntMsg"></div>
+  </div>
+  <div class="dlg-foot"><span class="muted sm" style="margin-right:auto">Each carrier gets their own email with the one-line details and Can cover / Make an offer buttons.</span><button class="btn" type="button" data-close>Not now</button><button class="btn primary" type="button" id="ntSend">Send</button></div>
+</dialog>
+
+<!-- add a carrier by hand -->
+<dialog id="mcDlg" style="width:min(640px, calc(100vw - 24px))">
+  <form id="mcForm" method="dialog">
+    <div class="dlg-head"><h2 id="mcTitle">Add carrier</h2><button class="x" type="button" data-close aria-label="Close">×</button></div>
+    <div class="dlg-body">
+      <p class="help" style="margin:0">For carriers you've worked with outside the system. They go on the daily email list and on any lanes you tick.</p>
+      <div class="field" style="position:relative"><label for="mcFind">Look up on your Highway list</label><input id="mcFind" placeholder="Name, MC or email" autocomplete="off"><div id="mcResults" class="results" hidden></div></div>
+      <div class="grid g2">
+        <div class="field"><label for="mc_company">Company</label><input id="mc_company"></div>
+        <div class="field"><label for="mc_mc">MC</label><input id="mc_mc" inputmode="numeric"></div>
+        <div class="field"><label for="mc_name">Contact</label><input id="mc_name"></div>
+        <div class="field"><label for="mc_phone">Phone</label><input id="mc_phone"></div>
+      </div>
+      <div class="field"><label for="mc_email">Email <span class="req">*</span></label><input id="mc_email" type="email" required></div>
+      <div class="field"><label>Lanes they run</label><div id="mcLanes" class="actions" style="gap:6px"></div></div>
+      <div class="field"><label for="mc_notes">Notes <span class="hint">(private)</span></label><textarea id="mc_notes" rows="2"></textarea></div>
+    </div>
+    <div class="dlg-foot"><button class="btn danger" type="button" id="mcDel" style="margin-right:auto" hidden>Remove carrier</button><button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="submit">Save</button></div>
+  </form>
+</dialog>
+
+<!-- inbox look-back -->
+<dialog id="lookDlg" style="width:min(900px, calc(100vw - 24px))">
+  <div class="dlg-head"><h2>Look back through past emails</h2><button class="x" type="button" data-close aria-label="Close">×</button></div>
+  <div class="dlg-body">
+    <p class="help" style="margin:0">Reads old mail in loads@ (nothing is changed or sent), finds carriers who asked about a lane or load, and lets you add them to your lane lists. <b>Only carriers on your Highway list can be added.</b></p>
+    <div class="actions"><select id="lkDays" style="width:auto"><option value="30">Last 30 days</option><option value="60">Last 60 days</option><option value="90" selected>Last 90 days</option><option value="180">Last 180 days</option></select><button class="btn primary" type="button" id="lkRun">Scan</button><span id="lkStatus" class="muted sm"></span></div>
+    <div id="lkList"></div>
+  </div>
+  <div class="dlg-foot"><button class="btn" type="button" data-close>Close</button><button class="btn primary" type="button" id="lkApply" disabled>Add selected</button></div>
+</dialog>
+
 <!-- award to a carrier booked outside the site -->
 <dialog id="bookDlg" style="width:min(640px, calc(100vw - 24px))">
   <form id="bookForm" method="dialog">
@@ -472,6 +520,23 @@
     <div class="dlg-body">
       <div class="field"><label for="ln_name">Lane name</label><input id="ln_name" required placeholder="SLC → Dallas (UNFI)"></div>
       <fieldset><legend>Load details it fills in</legend><div class="grid g4" id="laneFields"></div></fieldset>
+      <fieldset id="lnCarriersBox"><legend>Carriers for this lane</legend>
+        <p class="help" style="margin:0">When you post a load on this lane, these carriers are in the email list (along with anyone who bid the lane before or emailed about it). You'll see the list and pick before anything sends.</p>
+        <div id="lnCarriers" class="lncar"></div>
+        <div class="field" style="position:relative"><label for="lnSearch">Add from your Highway list or past carriers</label><input id="lnSearch" placeholder="Name, MC or email" autocomplete="off"><div id="lnResults" class="results" hidden></div></div>
+        <details><summary class="sm" style="cursor:pointer;color:var(--sign);font-weight:600">Add someone new or paste a list of emails</summary>
+          <div class="grid g4" style="margin-top:8px">
+            <div class="field"><label for="lnN_company">Company</label><input id="lnN_company"></div>
+            <div class="field"><label for="lnN_name">Contact</label><input id="lnN_name"></div>
+            <div class="field"><label for="lnN_email">Email</label><input id="lnN_email" type="email"></div>
+            <div class="field"><label for="lnN_mc">MC</label><input id="lnN_mc" inputmode="numeric"></div>
+          </div>
+          <div><button class="btn sm" type="button" id="lnN_add">Add carrier</button></div>
+          <div class="field" style="margin-top:10px"><label for="lnPaste">Or paste emails (any format)</label><textarea id="lnPaste" rows="2" placeholder="dispatch@acme.com, ops@fastline.com …"></textarea></div>
+          <div><button class="btn sm" type="button" id="lnPasteAdd">Add these</button></div>
+        </details>
+        <div id="lnNew" class="notice" hidden>Save the lane first, then you can add its carriers.</div>
+      </fieldset>
       <fieldset><legend>Post automatically</legend>
         <label style="font-weight:500"><input type="checkbox" id="ln_repeat" style="width:auto"> Post this lane on a schedule</label>
         <div class="grid g2">
@@ -515,7 +580,7 @@
 
 let loads = [], settings = {};
 const selected = new Set();
-const FIELDS = ['ref','status','origin_name','origin_address','origin_city','origin_state','origin_zip','dest_name','dest_address','dest_city','dest_state','dest_zip','pickup_date','pickup_window','delivery_date','delivery_window','equipment','temp','weight','pallets','commodity','stops','requirements','notes','target_rate','bid_deadline','miles','customer','customer_rate','aljex_pro'];
+const FIELDS = ['ref','status','origin_name','origin_address','origin_city','origin_state','origin_zip','dest_name','dest_address','dest_city','dest_state','dest_zip','pickup_date','pickup_window','delivery_date','delivery_window','equipment','temp','weight','pallets','commodity','stops','requirements','notes','target_rate','bid_deadline','miles','customer','customer_rate','aljex_pro','post_rate','lane_id'];
 const boardUrl = () => location.origin + '/';
 const loadUrl = l => location.origin + '/load/' + l.public_id;
 
@@ -671,6 +736,8 @@ async function saveLoad(copyAfter) {
     $('#loadDlg').close();
     await refreshLoads();
     if (copyAfter) copyText(loadUrl(saved)); else toast(editing ? 'Load saved' : 'Load posted');
+    const becameOpen = saved.status === 'open' && saved.bidding_open && (!editing || editing.status !== 'open');
+    if (becameOpen && typeof openNotify === 'function') openNotify(saved.id, true);
     setTimeout(refreshLoads, 4000); // pick up calculated miles/map
   } catch (err) { $('#loadMsg').innerHTML = `<div class="notice err">${esc(err.message)}</div>`; }
 }
@@ -691,6 +758,7 @@ async function renderBids(id) {
     <div class="muted">${l.ref ? '#' + esc(l.ref) + ' · ' : ''}Pickup ${esc(fmtDate(l.pickup_date) || 'TBD')} · ${esc(l.equipment || '')} · ${l.miles ? Number(l.miles).toLocaleString() + ' mi' : ''}
       ${l.target_rate ? ` · Target <b class="mono">${esc(money(l.target_rate))}</b>` : ''}</div>
     <div class="actions">${l.status === 'awarded' || l.status === 'closed' ? `<button class="btn sm" id="reopen">Reopen for bids</button>` : ''}
+      ${l.status === 'open' && l.bidding_open ? `<button class="btn sm primary" id="emailCarriers">Email carriers</button>` : ''}
       <button class="btn sm" id="bookOff" title="You settled with a carrier by phone or email">+ Booked outside the site</button>
       <button class="btn sm" id="copyL">Copy carrier link</button></div></div>`;
   const cp = costPanel(l);
@@ -701,11 +769,11 @@ async function renderBids(id) {
       const diff = l.target_rate ? b.amount - l.target_rate : null;
       return `<tr>
       <td class="num">${i + 1}</td>
-      <td><button class="linkbtn" type="button" data-cp="${esc(b.mc)}" style="font-weight:700;text-decoration:none;color:var(--ink);font-size:15px">${esc(b.company)}</button>${flagChip(b.carrier_flag)}<div class="mono muted" style="font-size:12.5px">MC ${esc(b.mc)}</div>${b.book_now ? '<div style="margin-top:3px"><span class="chip good" style="font-size:11.5px;padding:1px 7px">⚡ Book it now request</span></div>' : ''}${b.source === 'email' ? '<div style="margin-top:3px"><span class="chip" style="font-size:11.5px;padding:1px 7px">✉ by email</span></div>' : ''}${counterChip(b.counter)}${b.notes ? `<div style="font-size:13px;margin-top:4px">“${esc(b.notes)}”</div>` : ''}</td>
+      <td><button class="linkbtn" type="button" data-cp="${esc(b.mc)}" style="font-weight:700;text-decoration:none;color:var(--ink);font-size:15px">${esc(b.company)}</button>${flagChip(b.carrier_flag)}<div class="mono muted" style="font-size:12.5px">MC ${esc(b.mc)}</div>${b.book_now ? '<div style="margin-top:3px"><span class="chip good" style="font-size:11.5px;padding:1px 7px">⚡ Book it now request</span></div>' : ''}${b.source === 'email' ? '<div style="margin-top:3px"><span class="chip" style="font-size:11.5px;padding:1px 7px">✉ by email</span></div>' : b.source === 'cover' ? '<div style="margin-top:3px"><span class="chip good" style="font-size:11.5px;padding:1px 7px">✓ Can cover at your rate</span></div>' : b.source === 'offer' ? '<div style="margin-top:3px"><span class="chip eq" style="font-size:11.5px;padding:1px 7px">Offer from email</span></div>' : ''}${counterChip(b.counter)}${b.notes ? `<div style="font-size:13px;margin-top:4px">“${esc(b.notes)}”</div>` : ''}</td>
       <td>${b.highway_pass ? `<span class="chip eq" style="background:color-mix(in srgb, var(--good) 14%, transparent);color:var(--good)">✓ Pass</span>${b.highway_name && b.highway_name.toLowerCase() !== String(b.company).toLowerCase() ? `<div class="muted" style="font-size:12px;margin-top:3px">List: ${esc(b.highway_name)}</div>` : ''}`
         : '<span class="chip bad">✗ Not on list</span>'}</td>
       <td>${esc(b.contact_name)}<div style="font-size:13px">${esc(b.phone)}</div><div style="font-size:13px">${esc(b.email)}</div><div class="muted" style="font-size:12px">${esc(fmtDateTime(b.updated_at))}</div></td>
-      <td class="num"><b>${esc(money(b.amount))}</b><div class="muted" style="font-size:12px">${l.miles ? '$' + (b.amount / l.miles).toFixed(2) + '/mi' : ''}</div>${diff == null ? '' : `<div style="font-size:12px;color:${diff > 0 ? 'var(--bad)' : 'var(--good)'}">${diff > 0 ? '+' : '−'}${esc(money(Math.abs(diff)))} vs target</div>`}</td>
+      <td class="num"><b>${esc(money(b.amount))}</b><div class="muted" style="font-size:12px">${l.miles ? '$' + (b.amount / l.miles).toFixed(2) + '/mi' : ''}</div>${diff == null ? '' : `<div style="font-size:12px;color:${diff > 0 ? 'var(--bad)' : 'var(--good)'}">${diff === 0 ? '= target' : (diff > 0 ? '+' : '−') + esc(money(Math.abs(diff))) + ' vs target'}</div>`}</td>
       <td class="num">${b.cost_tag ? `<span class="mono" style="font-size:13.5px">${b.cost_tag.margin < 0 ? '−' : '+'}${esc(money(Math.abs(b.cost_tag.margin)))}</span><div class="muted" style="font-size:12px">${b.cost_tag.pct}%</div>${costChip(b.cost_tag)}` : '—'}</td>
       <td><div class="actions" style="gap:6px;justify-content:flex-end">${b.status === 'awarded' ? '<span class="status awarded">Awarded</span>'
         : l.status === 'awarded' ? '' : `<button class="btn sm primary" data-award="${b.id}" data-pass="${b.highway_pass}" data-flag="${esc(b.carrier_flag || '')}">Award</button><button class="btn sm" data-counter="${b.id}" data-amt="${b.amount}" data-email="${b.email ? 1 : 0}" title="Email this carrier a counter offer">Counter</button>`}
@@ -761,6 +829,7 @@ function wire(l) {
   $$('[data-counter]').forEach(b => b.onclick = () => sendCounter(b, l));
   $$('[data-editamt]').forEach(b => b.onclick = () => editRate(b.dataset.editamt, Number(b.dataset.amt), b.dataset.co, () => { renderBids(l.id); refreshLoads(); }));
   const bo = $('#bookOff'); if (bo) bo.onclick = () => openBookOff(l);
+  const ec = $('#emailCarriers'); if (ec) ec.onclick = () => openNotify(l.id, false);
   $$('[data-delbid]').forEach(b => b.onclick = async () => {
     if (!confirm('Remove this bid?')) return;
     await api(`/api/admin/bids/${b.dataset.delbid}`, { method: 'DELETE' }); renderBids(l.id); refreshLoads();
@@ -1052,5 +1121,6 @@ boot();
 </script>
 <script src="/static/admin-ops.js"></script>
 <script src="/static/admin-inbox.js"></script>
+<script src="/static/admin-lanes.js"></script>
 </body>
 </html>

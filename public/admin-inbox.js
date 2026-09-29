@@ -1,9 +1,9 @@
 // Admin → Inbox: loads@ auto-replies (review / automatic), templates, test box, lane alerts.
 let ib = { settings: null, rows: [] };
-const KIND = { lane: 'Lane request', truck: 'Truck available', bid: 'Bid by email', book: 'Book it now', load_question: 'Question on a load', remove: 'Remove me', unknown: 'Needs you', ignored: 'Automatic / junk' };
+const KIND = { followup: 'Reply in a thread', lane: 'Lane request', truck: 'Truck available', bid: 'Bid by email', book: 'Book it now', load_question: 'Question on a load', remove: 'Remove me', unknown: 'Needs you', ignored: 'Automatic / junk' };
 const STATUS = { draft: ['warn', 'Draft — review & send'], needs_you: ['bad', 'Needs you'], sent: ['good', 'Answered'], done: ['', 'Done'], ignored: ['', 'Ignored'], error: ['bad', 'Error'], queued: ['warn', 'Sending…'] };
 const TPL_LABELS = {
-  tpl_greeting: 'Greeting', tpl_loads: 'Loads found (lane request)', tpl_more: 'Nearby loads heading', tpl_none: 'Nothing on that lane', tpl_howto: 'How to bid / book (added under loads)',
+  tpl_greeting: 'Greeting', tpl_loads: 'Loads found (lane request)', tpl_more: 'Nearby loads heading', tpl_none: 'Nothing on that lane', tpl_howto: 'How to respond (added under loads)', tpl_buttons_note: 'Line under the buttons',
   tpl_load: 'Details for one load', tpl_bid: 'Bid received', tpl_bid_problem: "Bid couldn't be entered", tpl_book: 'Book it now received', tpl_closed: 'Load no longer available',
   tpl_remove: 'Removed from list', tpl_alert: 'Lane alert (new load posted)', tpl_value: 'Why haul with us (added to every reply)', tpl_signoff: 'Sign-off' };
 
@@ -47,6 +47,7 @@ async function refreshInbox() {
     const [cls, lab] = STATUS[r.status] || ['', r.status];
     const lane = r.lane ? [r.lane.o ? (r.lane.o.city ? r.lane.o.city + ', ' : '') + r.lane.o.state : '', r.lane.d ? (r.lane.d.city ? r.lane.d.city + ', ' : '') + r.lane.d.state : ''].filter(Boolean).join(' → ') : '';
     const canSend = ['draft', 'needs_you', 'error'].includes(r.status) && r.reply_preview;
+    const canAdd = ['needs_you', 'error'].includes(r.status) && !r.reply_preview && r.actions.includes('bid');
     return `<article class="ibitem" data-id="${r.id}">
       <header>
         <div><span class="chip ${cls}" style="font-size:11.5px;padding:1px 8px">${esc(lab)}</span> <span class="chip" style="font-size:11.5px;padding:1px 8px">${esc(KIND[r.kind] || r.kind)}</span>${flagChip(r.carrier_flag)}
@@ -62,6 +63,7 @@ async function refreshInbox() {
       </details>
       <div class="actions ibact">
         ${canSend ? `<input class="ibnote" placeholder="Optional line to add at the top" data-note="${r.id}"><button class="btn sm primary" data-ib="send" data-id="${r.id}">${r.actions.includes('bid') ? 'Enter bid & send' : 'Send reply'}</button>` : ''}
+        ${canAdd ? `<button class="btn sm primary" data-ib="send" data-id="${r.id}" title="Put this in the Bids window — nothing is sent to the carrier">Add as bid</button>` : ''}
         ${['needs_you', 'draft', 'error'].includes(r.status) ? `<button class="btn sm" data-ib="done" data-id="${r.id}" title="I handled it in Outlook">Done</button><button class="btn sm" data-ib="ignore" data-id="${r.id}">Ignore</button>` : `<button class="btn sm" data-ib="reopen" data-id="${r.id}">Reopen</button>`}
         ${['needs_you', 'draft'].includes(r.status) ? `<button class="btn sm" data-ib="reprocess" data-id="${r.id}" title="Read it again (e.g. after posting the load it asks about)">Re-read</button>` : ''}
         ${r.web_link ? `<a class="btn sm" href="${esc(r.web_link)}" target="_blank" rel="noopener">Open in Outlook ↗</a>` : ''}
@@ -77,7 +79,7 @@ $('#ibList').onclick = async e => {
   b.disabled = true;
   try {
     const r = await api(`/api/admin/inbox/${id}/${act}`, { method: 'POST', body: act === 'send' ? { note } : {} });
-    toast(act === 'send' ? (r.results && r.results.length ? r.results.join(' · ') + ' · reply sent' : 'Reply sent') : act === 'reprocess' ? 'Read again' : 'Updated');
+    toast(act === 'send' ? (r.results && r.results.length ? r.results.join(' · ') + (r.sent ? ' · reply sent' : '') : 'Reply sent') : act === 'reprocess' ? 'Read again' : 'Updated');
     if (act === 'send') refreshLoads();
   } catch (err) { toast(err.message); }
   loadInbox();

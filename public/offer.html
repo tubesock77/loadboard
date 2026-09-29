@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Make an offer · {company}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<header class="signbar">
+  <div class="wrap">
+    <a class="brand" href="/">
+      <span class="brand-logo"><img src="/static/logo.png" alt="Brock Transportation LLC" width="138" height="46"></span>
+      <span><span class="brand-name" data-company>Load Board</span><div class="brand-sub" data-tagline></div></span>
+    </a>
+  </div>
+</header>
+
+<main class="wrap" style="max-width:560px;padding-block:22px">
+  <div class="panel card stack" id="box"><div class="muted">Loading…</div></div>
+</main>
+
+<script src="/static/common.js"></script>
+<script>
+const parts = location.pathname.split('/').filter(Boolean), token = parts[1] || '_', pid = parts[2] || '';
+let fromAddr = '';
+const want = new URLSearchParams(location.search).get('a') === 'cover' ? 'cover' : 'offer';
+let D = null, editing = false;
+const saved = (() => { try { return JSON.parse(localStorage.getItem('carrier') || '{}'); } catch (_) { return {}; } })();
+
+function facts(l) {
+  return [l.pickup_date ? 'Pick up ' + fmtDate(l.pickup_date) + (l.pickup_window ? ' ' + l.pickup_window : '') : '', l.equipment, l.weight ? Number(l.weight).toLocaleString() + ' lb' : '', l.miles ? Math.round(l.miles).toLocaleString() + ' mi' : ''].filter(Boolean).join(' · ');
+}
+function whoFields(c) {
+  return `<div class="grid g2">
+      <div class="field"><label for="o_mc">MC number<span class="req">*</span></label><input id="o_mc" inputmode="numeric" value="${esc(c.mc || '')}"></div>
+      <div class="field"><label for="o_company">Company<span class="req">*</span></label><input id="o_company" value="${esc(c.company || '')}"></div>
+      <div class="field"><label for="o_name">Your name<span class="req">*</span></label><input id="o_name" value="${esc(c.name || c.contact_name || '')}"></div>
+      <div class="field"><label for="o_phone">Phone</label><input id="o_phone" type="tel" value="${esc(c.phone || '')}"></div>
+    </div>
+    <div class="field"><label for="o_email">Email<span class="req">*</span></label><input id="o_email" type="email" value="${esc(c.email || '')}"></div>`;
+}
+function render() {
+  const l = D.load, c = D.carrier || saved || {};
+  const head = `<div class="lowbid-label">${want === 'cover' && D.post_rate ? 'Can you cover this load?' : 'Make an offer'}</div>
+    <div class="lane" style="font-size:24px">${esc(l.origin)} <span class="arrow">→</span> ${esc(l.dest)}</div>
+    <div class="muted" style="font-size:14px">${esc(facts(l))}</div>
+    ${D.post_rate ? `<div>Posted rate: <b class="mono" style="color:var(--good)">${esc(money(D.post_rate))}</b></div>` : ''}`;
+  if (!D.open) { $('#box').innerHTML = head + `<div class="notice warn">${D.awarded ? 'This load has been covered.' : 'This load is no longer taking offers.'} Thanks for checking.</div><a class="btn" href="/">See other loads</a>`; return; }
+  const known = D.known && !editing;
+  const who = known ? `<div class="notice" style="font-size:14px">Sending as <b>${esc(c.name || c.email)}</b> · ${esc(c.company)} · MC ${esc(c.mc)} <button class="linkbtn" type="button" id="notMe">Not you?</button></div>` : whoFields(c);
+  const cover = want === 'cover' && D.post_rate;
+  $('#box').innerHTML = head + (cover ? `
+      ${who}
+      <div id="o_msg"></div>
+      <button class="btn booknow-btn" type="button" id="send" style="font-size:18px;padding:14px">✓ Yes — I can cover it at ${esc(money(D.post_rate))}</button>
+      <div class="hint">This tells us you can haul it at our rate. We'll confirm with you directly before anything is booked. <button class="linkbtn" type="button" id="toOffer">Offer a different rate instead</button></div>`
+    : `
+      <div class="field"><label for="o_amount">Your all-in rate<span class="req">*</span></label><div class="money"><input id="o_amount" inputmode="decimal" autocomplete="off" placeholder="0"></div>
+        ${D.bid_step ? `<div class="hint" style="margin-top:4px">In ${esc(money(D.bid_step))} steps, like ${esc(money(3500))} or ${esc(money(3500 + D.bid_step))}.</div>` : ''}</div>
+      <div class="field"><label for="o_note">Note <span class="hint">(optional)</span></label><textarea id="o_note" rows="2" placeholder="Can pick up Tue afternoon"></textarea></div>
+      ${who}
+      <div id="o_msg"></div>
+      <button class="btn primary" type="button" id="send" style="font-size:17px;padding:13px">Send offer</button>
+      <div class="hint">We'll confirm with you directly before anything is booked.</div>`);
+  const nm = $('#notMe'); if (nm) nm.onclick = () => { editing = true; D.carrier = { email: '' }; render(); };
+  const to = $('#toOffer'); if (to) to.onclick = () => { history.replaceState(null, '', location.pathname + '?a=offer'); location.reload(); };
+  $('#send').onclick = submit;
+  const a = $('#o_amount'); if (a) a.focus();
+}
+async function submit() {
+  const val = id => { const el = $('#' + id); return el ? el.value.trim() : ''; };
+  const body = { action: want === 'cover' && D.post_rate ? 'cover' : 'offer', amount: val('o_amount'), note: val('o_note') };
+  if (!(D.known && !editing)) Object.assign(body, { mc: val('o_mc'), company: val('o_company'), contact_name: val('o_name'), phone: val('o_phone'), email: val('o_email') });
+  const btn = $('#send'); btn.disabled = true;
+  try {
+    const r = await api(`/api/o/${encodeURIComponent(token)}/${encodeURIComponent(pid)}`, { method: 'POST', body });
+    try { if (body.mc) localStorage.setItem('carrier', JSON.stringify({ mc: body.mc, company: body.company, contact_name: body.contact_name, phone: body.phone, email: body.email })); } catch (_) { /* no storage */ }
+    if (r.token) myBids.save(pid, r.token);
+    const first = String(r.name || '').split(/[\s@]/)[0];
+    $('#box').innerHTML = `<div style="text-align:center;display:grid;gap:10px;justify-items:center">
+      <div class="pop-icon good">✓</div><h2>Got it${first ? ' — thanks, ' + esc(first) : ''}</h2>
+      <div>${r.cover ? 'You can cover' : 'Your offer of'} <b>${esc(r.lane)}</b>${r.cover ? ' at' : ':'} <b class="mono" style="color:var(--good)">${esc(money(r.amount))}</b>.</div>
+      <div class="muted">We'll confirm with you directly before it's booked. You'll hear from ${esc(fromAddr || 'us')}.</div>
+      <a class="btn" href="/">See other loads</a></div>`;
+  } catch (err) { $('#o_msg').innerHTML = `<div class="notice err">${esc(err.message)}</div>`; btn.disabled = false; }
+}
+applyBranding().then(c => { fromAddr = (c && c.contact_email) || ''; });
+api(`/api/o/${encodeURIComponent(token)}/${encodeURIComponent(pid)}`).then(d => { D = d; render(); })
+  .catch(e => { $('#box').innerHTML = `<div class="notice err">${esc(e.message)}</div><a class="btn" href="/">See open loads</a>`; });
+</script>
+</body>
+</html>
