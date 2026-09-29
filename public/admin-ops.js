@@ -459,7 +459,7 @@ async function loadReports() {
       <div><span>Carrier pay</span><b>${esc(money(d.carrier_cost))}</b></div>
       <div><span>Margin</span><b style="color:${d.margin >= 0 ? 'var(--good)' : 'var(--bad)'}">${esc(money(d.margin))}</b><small>${d.margin_pct != null ? d.margin_pct + '%' : ''}${d.with_rate ? ' · ' + esc(money(Math.round(d.margin / d.with_rate))) + '/load' : ''}</small></div>
     </div>
-    ${d.missing_rate ? `<div class="notice warn">${d.missing_rate} awarded load${d.missing_rate === 1 ? ' has' : 's have'} no customer rate, so ${d.missing_rate === 1 ? "it's" : "they're"} left out of revenue and margin. Add it in Tracking → Open.</div>` : ''}
+    ${d.missing_rate ? `<div class="notice warn">${d.missing_rate} awarded load${d.missing_rate === 1 ? ' has' : 's have'} no customer rate, so ${d.missing_rate === 1 ? "it's" : "they're"} left out of revenue and margin. Add it in Awarded → Open.</div>` : ''}
     <div class="stat-row">${d.by_stage.map(s => `<div class="stat"><b>${s.n}</b><span>${esc(s.label)}</span></div>`).join('')}</div>
     <div class="stack">${tbl('By customer', d.by_customer, 'Customer')}${tbl('Top lanes', d.by_lane, 'Lane')}${tbl('Top carriers (covered loads)', d.by_carrier, 'Carrier')}</div>`;
 }
@@ -506,7 +506,7 @@ $('#bookForm').onsubmit = async e => {
   try {
     await api(`/api/admin/loads/${l.id}/manual-award`, { method: 'POST', body: { mc: $('#bk_mc').value, amount: $('#bk_amount').value, company: $('#bk_company').value,
       contact_name: $('#bk_contact').value, phone: $('#bk_phone').value, email: $('#bk_email').value, note: $('#bk_note').value, notify: $('#bk_notify').checked } });
-    $('#bookDlg').close(); toast('Load awarded — send the rate con from Aljex, then mark it in Tracking');
+    $('#bookDlg').close(); toast('Load awarded — send the rate con from Aljex, then mark it on the Awarded tab');
     renderBids(l.id); refreshLoads();
   } catch (err) { $('#bookMsg').innerHTML = `<div class="notice err">${esc(err.message)}</div>`; }
 };

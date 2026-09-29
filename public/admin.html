@@ -33,7 +33,7 @@
     <div class="tabs" role="tablist">
       <button type="button" class="on" data-tab="loads">Loads</button>
       <button type="button" data-tab="inbox">Inbox <span class="tabcount" id="inboxCount" hidden></span></button>
-      <button type="button" data-tab="tracking">Tracking</button>
+      <button type="button" data-tab="tracking">Awarded</button>
       <button type="button" data-tab="profiles">Carriers</button>
       <button type="button" data-tab="lanes">Lanes &amp; places</button>
       <button type="button" data-tab="reports">Reports</button>
@@ -54,9 +54,9 @@
         </div>
         <div class="right">
           <input id="search" type="search" placeholder="Search loads" style="width:200px" aria-label="Search loads">
-          <select id="statusFilter" style="width:auto" aria-label="Status filter">
-            <option value="">All statuses</option><option value="open">Open</option><option value="draft">Draft</option>
-            <option value="closed">Closed</option><option value="awarded">Awarded</option>
+          <select id="statusFilter" style="width:auto" aria-label="Status filter" autocomplete="off">
+            <option value="active">Active (open &amp; drafts)</option><option value="open">Open</option><option value="draft">Draft</option>
+            <option value="closed">Closed</option><option value="awarded">Awarded</option><option value="">All statuses</option>
           </select>
         </div>
       </div>
@@ -630,18 +630,19 @@ async function refreshLoads() {
 }
 function renderLoads() {
   const q = $('#search').value.trim().toLowerCase(), sf = $('#statusFilter').value;
-  const list = loads.filter(l => (!sf || l.status === sf) &&
+  const list = loads.filter(l => (!sf || (sf === 'active' ? ['open', 'draft'].includes(l.status) : l.status === sf)) &&
     (!q || [l.ref, l.public_id, l.origin_city, l.origin_state, l.dest_city, l.dest_state, l.equipment, l.commodity].join(' ').toLowerCase().includes(q)));
   const open = loads.filter(l => l.status === 'open');
   $('#stats').innerHTML = `
     <div class="stat"><b>${open.filter(l => l.bidding_open).length}</b><span>Taking bids</span></div>
     <div class="stat"><b>${open.filter(l => !l.bid_count).length}</b><span>Open, no bids</span></div>
     <div class="stat"><b>${loads.reduce((s, l) => s + (l.status === 'open' ? l.bid_count : 0), 0)}</b><span>Bids on open loads</span></div>
-    <div class="stat"><b>${loads.filter(l => l.status === 'awarded').length}</b><span>Awarded</span></div>`;
+    <div class="stat"><b>${loads.filter(l => l.status === 'awarded').length}</b><span>Awarded <button class="linkbtn" type="button" data-gotrk>see Awarded tab →</button></span></div>`;
+  const gt = $('[data-gotrk]'); if (gt) gt.onclick = () => $('.tabs [data-tab=tracking]').click();
   const flWait = open.filter(l => l.first_look_until && !l.first_look_released && (l.first_look_until.startsWith('9999') || Date.parse(l.first_look_until) < Date.now()));
   const fn = $('#flNotice'); if (fn) { fn.hidden = !flWait.length; fn.innerHTML = flWait.length ? `<b>★ ${flWait.length} load${flWait.length === 1 ? '' : 's'} waiting on you for first look:</b> ` + flWait.map(l => `<button class="linkbtn" type="button" data-flopen="${l.id}">${esc(place(l.origin_city, l.origin_state))} → ${esc(place(l.dest_city, l.dest_state))}${l.first_look_until.startsWith('9999') ? ' (not sent yet)' : ' (ended)'}</button>`).join(' · ') : '';
     $$('[data-flopen]').forEach(b => b.onclick = () => openNotify(Number(b.dataset.flopen))); }
-  if (!list.length) { $('#loadTable').innerHTML = `<tbody><tr><td class="empty">${loads.length ? 'No loads match.' : 'No loads yet. Click <b>+ New load</b> or <b>Import loads</b> to post your first one.'}</td></tr></tbody>`; return; }
+  if (!list.length) { $('#loadTable').innerHTML = `<tbody><tr><td class="empty">${loads.length ? (sf === 'active' ? 'No active loads. Awarded loads are on the <b>Awarded</b> tab; closed ones are under the status filter.' : 'No loads match.') : 'No loads yet. Click <b>+ New load</b> or <b>Import loads</b> to post your first one.'}</td></tr></tbody>`; return; }
   $('#loadTable').innerHTML = `<thead><tr><th style="width:30px"><input type="checkbox" id="selAll" aria-label="Select all shown"></th><th>Lane</th><th>Pickup</th><th class="num" title="Loaded miles · estimated break-even (incl. deadhead) · DAT market">Miles · cost</th><th class="num">Low bid</th><th>Due</th><th></th></tr></thead>
   <tbody>${list.map(l => {
     const st = l.status === 'open' && !l.bidding_open ? 'closed' : l.status;
@@ -674,6 +675,7 @@ function renderLoads() {
   const sa = $('#selAll'); if (sa) { sa.checked = list.length && list.every(l => selected.has(l.id)); sa.onchange = () => { list.forEach(l => sa.checked ? selected.add(l.id) : selected.delete(l.id)); renderLoads(); }; }
   renderBulk();
 }
+$('#statusFilter').value = 'active'; // browsers can restore an old choice on reload — always start on active loads
 $('#search').oninput = renderLoads; $('#statusFilter').onchange = renderLoads;
 $('#boardLink').onclick = () => copyText(boardUrl());
 
@@ -835,7 +837,7 @@ function wire(l) {
   };
   $$('[data-award]').forEach(b => b.onclick = async () => {
     if (!confirm((b.dataset.flag === 'dnu' ? 'WARNING: you marked this carrier DO NOT USE.\n\n' : '') + (b.dataset.pass === '1' ? '' : 'Heads up: this carrier is NOT on your Highway list.\n\n') + 'Award this load to this carrier? Bidding will close and the load will show as covered.')) return;
-    await api(`/api/admin/bids/${b.dataset.award}/award`, { method: 'POST' }); toast('Load awarded — send the rate con from Aljex, then mark it in Tracking'); renderBids(l.id); refreshLoads();
+    await api(`/api/admin/bids/${b.dataset.award}/award`, { method: 'POST' }); toast('Load awarded — send the rate con from Aljex, then mark it on the Awarded tab'); renderBids(l.id); refreshLoads();
   });
   $$('#bidsBody [data-cp]').forEach(b => b.onclick = () => openCarrier(b.dataset.cp));
   $$('[data-counter]').forEach(b => b.onclick = () => sendCounter(b, l));

@@ -26,7 +26,11 @@ function renderIbBar() {
       It's limited to ${esc(s.from)} only, like the send permission. It can take up to an hour to start working. <span class="muted">(${esc(s.last_error.slice(0, 160))})</span></div>`;
   else if (s.last_error && s.mode !== 'off') setup = `<div class="notice err"><b>Last check failed:</b> ${esc(s.last_error)}</div>`;
   else if (s.mode === 'off') setup = `<div class="notice">Turn on <b>Review</b> to start. The site reads new mail to ${esc(s.from || 'loads@')} (from the moment you turn it on), drafts the replies, and you click <b>Send</b>. Switch to <b>Automatic</b> once you trust it. "Remove me" requests are always handled right away.</div>`;
+  if (!setup && s.mark_read_blocked && s.mode !== 'off') setup = `<div class="notice"><b>Replies now go inside the carrier's email thread.</b> To also mark their email as read in Outlook once the site answers, add one more permission (same PowerShell as before, signed in as Cody@):
+      <pre class="mono" style="white-space:pre-wrap;margin:8px 0 4px;font-size:12.5px">New-ManagementRoleAssignment -App 03d67516-4f3e-4db6-8a63-40f9598f6883 -Role "Application Mail.ReadWrite" -CustomResourceScope "Load Board mailbox"</pre>
+      Still limited to ${esc(s.from)} only. The site only uses it to mark emails read. <button class="linkbtn" type="button" id="ibRetryRead">I've added it — try again</button></div>`;
   $('#ibSetup').innerHTML = setup;
+  const rr = $('#ibRetryRead'); if (rr) rr.onclick = async () => { ib.settings = await api('/api/admin/inbox/settings', { method: 'PUT', body: { retry_mark_read: true } }); renderIbBar(); toast('Will try again on the next reply'); };
 }
 $$('input[name=ibmode]').forEach(r => r.onchange = async () => {
   if (r.value === 'auto' && !confirm('Automatic mode sends replies, enters email bids and saves lane alerts without waiting for you. Emails it can\'t read are still left for you. Turn it on?')) { renderIbBar(); return; }
