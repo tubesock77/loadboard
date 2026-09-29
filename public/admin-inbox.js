@@ -5,7 +5,7 @@ const STATUS = { draft: ['warn', 'Draft — review & send'], needs_you: ['bad', 
 const TPL_LABELS = {
   tpl_greeting: 'Greeting', tpl_loads: 'Loads found (lane request)', tpl_more: 'Nearby loads heading', tpl_none: 'Nothing on that lane', tpl_howto: 'How to respond (added under loads)', tpl_buttons_note: 'Line under the buttons',
   tpl_load: 'Details for one load', tpl_bid: 'Bid received', tpl_bid_problem: "Bid couldn't be entered", tpl_book: 'Book it now received', tpl_closed: 'Load no longer available',
-  tpl_remove: 'Removed from list', tpl_alert: 'Lane alert (new load posted)', tpl_value: 'Why haul with us (added to every reply)', tpl_signoff: 'Sign-off' };
+  tpl_remove: 'Removed from list', tpl_alert: 'Lane alert (new load posted)', tpl_notify: 'Load email to lane carriers', tpl_first_look: 'First look email (favorites)', tpl_value: 'Why haul with us (added to every reply)', tpl_signoff: 'Sign-off' };
 
 async function loadInbox() {
   ib.settings = await api('/api/admin/inbox/settings');
@@ -51,7 +51,7 @@ async function refreshInbox() {
     return `<article class="ibitem" data-id="${r.id}">
       <header>
         <div><span class="chip ${cls}" style="font-size:11.5px;padding:1px 8px">${esc(lab)}</span> <span class="chip" style="font-size:11.5px;padding:1px 8px">${esc(KIND[r.kind] || r.kind)}</span>${flagChip(r.carrier_flag)}
-          <div class="ibfrom"><b>${esc(r.from_name || r.from_email)}</b> <span class="muted">&lt;${esc(r.from_email)}&gt;</span>${r.mc ? ` <span class="mono muted sm">MC ${esc(r.mc)}</span>` : ''}</div>
+          <div class="ibfrom"><b>${esc(r.company || r.from_name || r.from_email)}</b>${r.mc ? ` <span class="mono muted sm">MC ${esc(r.mc)}</span>` : ''}<div class="muted sm">${r.company && r.from_name ? esc(r.from_name) + ' · ' : ''}${esc(r.from_email)}</div></div>
           <div class="ibsubj">${esc(r.subject || '(no subject)')}</div></div>
         <div class="muted sm" style="white-space:nowrap">${esc(fmtDateTime(r.received_at))}</div>
       </header>
@@ -113,15 +113,23 @@ let alerts = [];
 async function refreshAlerts() {
   alerts = await api('/api/admin/alerts');
   if (!alerts.length) { $('#alertTable').innerHTML = '<tbody><tr><td class="empty">No lane alerts yet. They\'re saved when carriers email about a lane or sign up on the board.</td></tr></tbody>'; return; }
-  $('#alertTable').innerHTML = `<thead><tr><th>Carrier</th><th>Lane</th><th>Type</th><th>From</th><th class="num">Sent</th><th>Until</th><th></th></tr></thead><tbody>` +
-    alerts.map(a => { const expired = a.expires_at && Date.parse(a.expires_at) < Date.now(); return `<tr style="${!a.active || expired ? 'opacity:.55' : ''}">
-      <td><b>${esc(a.name || a.email)}</b><div class="sm muted">${esc(a.email)}${a.mc ? ' · MC ' + esc(a.mc) : ''}</div></td>
-      <td><span class="lanetag">${esc((a.o_city ? a.o_city + ', ' : '') + (a.o_state || 'Any'))} → ${esc((a.d_city ? a.d_city + ', ' : '') + (a.d_state || 'Any'))}</span>${a.equipment ? ` <span class="muted sm">${esc(a.equipment)}</span>` : ''}</td>
-      <td class="sm">${a.kind === 'truck' ? 'Truck' + (a.avail_date ? ' ' + esc(fmtDate(a.avail_date)) : '') : 'Lane'}</td>
-      <td class="sm">${esc({ email: 'Email', site: 'Board sign-up', admin: 'You' }[a.source] || a.source)}</td>
-      <td class="num">${a.sent_count || 0}</td>
-      <td class="sm">${!a.active ? 'Stopped' : expired ? 'Expired' : a.expires_at ? esc(fmtDate(a.expires_at.slice(0, 10))) : '—'}</td>
-      <td><button class="btn sm danger" data-delalert="${a.id}" title="Delete alert">×</button></td></tr>`; }).join('') + '</tbody>';
+  // one block per carrier: company (live from Highway) · MC, then contact · email, lanes indented underneath
+  const groups = new Map();
+  for (const a of alerts) { const k = String(a.email).toLowerCase(); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(a); }
+  const lbl = g => String((g.find(a => a.company) || {}).company || g[0].name || g[0].email).toUpperCase();
+  const list = [...groups.values()].sort((x, y) => lbl(x).localeCompare(lbl(y)));
+  const hw = ok => ok ? '<span class="chip good" style="font-size:11px;padding:0 6px">✓ Highway</span>' : '<span class="chip" style="font-size:11px;padding:0 6px">Waiting on Highway</span>';
+  $('#alertTable').innerHTML = `<thead><tr><th>Carrier / lane</th><th>Type</th><th>From</th><th class="num">Sent</th><th>Until</th><th></th></tr></thead><tbody>` +
+    list.map(g => { const c = { ...g[0], ...(g.find(a => a.company) || {}), mc: (g.find(a => a.mc) || {}).mc || '', highway_pass: g.some(a => a.highway_pass) }, name = g.find(a => a.name) || {};
+      return `<tr class="alg-head"><td colspan="6" style="padding-top:12px;border-bottom:0"><b>${esc(c.company || c.name || c.email)}</b>${c.mc ? ` <span class="muted sm">MC ${esc(c.mc)}</span>` : ''} ${hw(c.highway_pass)}
+        <div class="sm muted">${c.company && name.name ? esc(name.name) + ' · ' : ''}${esc(c.email)} · ${g.length} lane${g.length === 1 ? '' : 's'}</div></td></tr>` +
+      g.map(a => { const expired = a.expires_at && Date.parse(a.expires_at) < Date.now(); return `<tr class="alg-l" style="${!a.active || expired ? 'opacity:.55' : ''}">
+        <td style="padding-left:28px"><span class="muted">↳</span> <span class="lanetag">${esc((a.o_city ? a.o_city + ', ' : '') + (a.o_state || 'Any'))} → ${esc((a.d_city ? a.d_city + ', ' : '') + (a.d_state || 'Any'))}</span>${a.equipment ? ` <span class="muted sm">${esc(a.equipment)}</span>` : ''}</td>
+        <td class="sm">${a.kind === 'truck' ? 'Truck' + (a.avail_date ? ' ' + esc(fmtDate(a.avail_date)) : '') : 'Lane'}</td>
+        <td class="sm">${esc({ email: 'Email', site: 'Board sign-up', admin: 'You' }[a.source] || a.source)}</td>
+        <td class="num">${a.sent_count || 0}</td>
+        <td class="sm">${!a.active ? 'Stopped' : expired ? 'Expired' : a.expires_at ? esc(fmtDate(a.expires_at.slice(0, 10))) : '—'}</td>
+        <td><button class="x" style="border:0;background:none;color:var(--muted);font-size:17px;cursor:pointer" data-delalert="${a.id}" title="Delete alert">×</button></td></tr>`; }).join(''); }).join('') + '</tbody>';
 }
 $('#alertTable').onclick = async e => { const b = e.target.closest('[data-delalert]'); if (!b) return; if (!confirm('Delete this lane alert?')) return; await api(`/api/admin/alerts/${b.dataset.delalert}`, { method: 'DELETE' }); refreshAlerts(); };
 $('#newAlert').onclick = async () => {

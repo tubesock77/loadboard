@@ -69,6 +69,7 @@
         <button class="btn sm danger" type="button" data-bulk="delete">Delete</button>
         <button class="linkbtn" type="button" id="bulkClear">Clear</button>
       </div>
+      <div class="notice warn" id="flNotice" hidden style="margin-bottom:10px"></div>
       <div class="panel table-wrap"><table class="data" id="loadTable"></table></div>
     </section>
 
@@ -84,6 +85,7 @@
         <div class="actions"><span id="ibStatus" class="muted sm"></span><button class="btn sm" type="button" id="ibCheck">Check now</button><button class="btn sm" type="button" id="ibTplBtn">Replies &amp; wording</button><button class="btn sm" type="button" id="ibTestBtn">Try an email</button><button class="btn sm" type="button" id="ibLookBtn">Look back through past emails</button></div>
       </div>
       <div id="ibSetup"></div>
+      <div class="hwbanner"></div>
       <div class="toolbar">
         <div class="left"><select id="ibFilter" style="width:auto" aria-label="Show"><option value="open">Needs you &amp; drafts</option><option value="handled">Answered</option><option value="ignored">Ignored</option><option value="all">All</option></select>
           <span class="muted sm">Anything the site can't read is left for you — answer those in Outlook.</span></div>
@@ -124,6 +126,7 @@
 
     <!-- LANES & PLACES -->
     <section data-pane="lanes" hidden>
+      <div class="hwbanner"></div>
       <div class="toolbar">
         <div class="left"><h2 style="font-size:24px">Saved lanes</h2><span class="muted" style="font-size:14px">Save a load as a lane from the load form, or set one to post itself on a schedule.</span></div>
         <div class="right"><button class="btn" type="button" id="newLane">+ New lane</button></div>
@@ -436,12 +439,13 @@
   <div class="dlg-head"><h2 id="ntTitle">Email this load</h2><button class="x" type="button" data-close aria-label="Close">×</button></div>
   <div class="dlg-body">
     <p class="help" style="margin:0" id="ntIntro"></p>
+    <div id="ntFL" hidden></div>
     <div class="actions" style="justify-content:space-between"><div class="actions"><button class="linkbtn" type="button" id="ntAll">Select all</button><button class="linkbtn" type="button" id="ntNone">None</button></div><span class="muted sm" id="ntCount"></span></div>
     <div id="ntList" class="ntlist"></div>
     <div class="field" style="position:relative"><label for="ntSearch">Add someone else</label><input id="ntSearch" placeholder="Name, MC or email from your Highway list — or type an email" autocomplete="off"><div id="ntResults" class="results" hidden></div></div>
     <div id="ntMsg"></div>
   </div>
-  <div class="dlg-foot"><span class="muted sm" style="margin-right:auto">Each carrier gets their own email with the one-line details and Can cover / Make an offer buttons.</span><button class="btn" type="button" data-close>Not now</button><button class="btn primary" type="button" id="ntSend">Send</button></div>
+  <div class="dlg-foot"><span class="muted sm" style="margin-right:auto">Each carrier gets their own email with the one-line details and Can cover / Make an offer buttons.</span><button class="btn" type="button" data-close>Not now</button><button class="btn" type="button" id="ntRelease" hidden>Put on board only</button><button class="btn primary" type="button" id="ntSend">Send</button></div>
 </dialog>
 
 <!-- add a carrier by hand -->
@@ -449,7 +453,7 @@
   <form id="mcForm" method="dialog">
     <div class="dlg-head"><h2 id="mcTitle">Add carrier</h2><button class="x" type="button" data-close aria-label="Close">×</button></div>
     <div class="dlg-body">
-      <p class="help" style="margin:0">For carriers you've worked with outside the system. They go on the daily email list and on any lanes you tick.</p>
+      <p class="help" style="margin:0">Saves their contact and lanes. Like everyone else, they're only emailed while they're on your Highway list.</p>
       <div class="field" style="position:relative"><label for="mcFind">Look up on your Highway list</label><input id="mcFind" placeholder="Name, MC or email" autocomplete="off"><div id="mcResults" class="results" hidden></div></div>
       <div class="grid g2">
         <div class="field"><label for="mc_company">Company</label><input id="mc_company"></div>
@@ -469,7 +473,7 @@
 <dialog id="lookDlg" style="width:min(900px, calc(100vw - 24px))">
   <div class="dlg-head"><h2>Look back through past emails</h2><button class="x" type="button" data-close aria-label="Close">×</button></div>
   <div class="dlg-body">
-    <p class="help" style="margin:0">Reads old mail in loads@ (nothing is changed or sent), finds carriers who asked about a lane or load, and lets you add them to your lane lists. <b>Only carriers on your Highway list can be added.</b></p>
+    <p class="help" style="margin:0">Reads old mail in loads@ (nothing is changed or sent), finds carriers who asked about a lane or load, and saves them to your lane lists. <b>Only carriers on your Highway list are ever emailed</b> — the rest wait and join automatically once you add them to the Highway Google Sheet.</p>
     <div class="actions"><select id="lkDays" style="width:auto"><option value="30">Last 30 days</option><option value="60">Last 60 days</option><option value="90" selected>Last 90 days</option><option value="180">Last 180 days</option></select><button class="btn primary" type="button" id="lkRun">Scan</button><span id="lkStatus" class="muted sm"></span></div>
     <div id="lkList"></div>
   </div>
@@ -521,7 +525,7 @@
       <div class="field"><label for="ln_name">Lane name</label><input id="ln_name" required placeholder="SLC → Dallas (UNFI)"></div>
       <fieldset><legend>Load details it fills in</legend><div class="grid g4" id="laneFields"></div></fieldset>
       <fieldset id="lnCarriersBox"><legend>Carriers for this lane</legend>
-        <p class="help" style="margin:0">When you post a load on this lane, these carriers are in the email list (along with anyone who bid the lane before or emailed about it). You'll see the list and pick before anything sends.</p>
+        <p class="help" style="margin:0">When you post a load on this lane, these carriers are in the email list (along with anyone who bid the lane before or emailed about it). Only carriers on your Highway list get it — the rest show "Waiting on Highway" until you add them to the Google Sheet.</p>
         <div id="lnCarriers" class="lncar"></div>
         <div class="field" style="position:relative"><label for="lnSearch">Add from your Highway list or past carriers</label><input id="lnSearch" placeholder="Name, MC or email" autocomplete="off"><div id="lnResults" class="results" hidden></div></div>
         <details><summary class="sm" style="cursor:pointer;color:var(--sign);font-weight:600">Add someone new or paste a list of emails</summary>
@@ -634,6 +638,9 @@ function renderLoads() {
     <div class="stat"><b>${open.filter(l => !l.bid_count).length}</b><span>Open, no bids</span></div>
     <div class="stat"><b>${loads.reduce((s, l) => s + (l.status === 'open' ? l.bid_count : 0), 0)}</b><span>Bids on open loads</span></div>
     <div class="stat"><b>${loads.filter(l => l.status === 'awarded').length}</b><span>Awarded</span></div>`;
+  const flWait = open.filter(l => l.first_look_until && !l.first_look_released && (l.first_look_until.startsWith('9999') || Date.parse(l.first_look_until) < Date.now()));
+  const fn = $('#flNotice'); if (fn) { fn.hidden = !flWait.length; fn.innerHTML = flWait.length ? `<b>★ ${flWait.length} load${flWait.length === 1 ? '' : 's'} waiting on you for first look:</b> ` + flWait.map(l => `<button class="linkbtn" type="button" data-flopen="${l.id}">${esc(place(l.origin_city, l.origin_state))} → ${esc(place(l.dest_city, l.dest_state))}${l.first_look_until.startsWith('9999') ? ' (not sent yet)' : ' (ended)'}</button>`).join(' · ') : '';
+    $$('[data-flopen]').forEach(b => b.onclick = () => openNotify(Number(b.dataset.flopen))); }
   if (!list.length) { $('#loadTable').innerHTML = `<tbody><tr><td class="empty">${loads.length ? 'No loads match.' : 'No loads yet. Click <b>+ New load</b> or <b>Import loads</b> to post your first one.'}</td></tr></tbody>`; return; }
   $('#loadTable').innerHTML = `<thead><tr><th style="width:30px"><input type="checkbox" id="selAll" aria-label="Select all shown"></th><th>Lane</th><th>Pickup</th><th class="num" title="Loaded miles · estimated break-even (incl. deadhead) · DAT market">Miles · cost</th><th class="num">Low bid</th><th>Due</th><th></th></tr></thead>
   <tbody>${list.map(l => {
@@ -641,7 +648,11 @@ function renderLoads() {
     const stLabel = l.status === 'open' && !l.bidding_open ? 'Expired' : l.status;
     const geoNote = l.geo_status === 'failed' ? ' <span class="chip bad" title="' + esc(l.geo_error || 'Address not found — check city/state/ZIP') + '">no map</span>' : l.geo_status === 'pending' ? ' <span class="chip">mapping…</span>' : '';
     const overTarget = l.target_rate && l.low_bid && l.low_bid > l.target_rate;
-    const src = '';
+    const HELD = '9999-12-31T00:00:00.000Z';
+    const flState = l.status !== 'open' || !l.first_look_until || l.first_look_released ? '' : l.first_look_until === HELD ? 'held' : Date.parse(l.first_look_until) < Date.now() ? 'ended' : 'active';
+    const src = flState === 'held' ? ' <button class="chip fl" data-act="fl" data-id="' + l.id + '" title="Off the board until you send it">★ Held for first look — send</button>'
+      : flState === 'active' ? ' <button class="chip fl" data-act="fl" data-id="' + l.id + '" title="Favorites only — off the board">★ First look · until ' + esc(fmtDateTime(l.first_look_until)) + '</button>'
+      : flState === 'ended' ? ' <button class="chip warn" data-act="fl" data-id="' + l.id + '">★ First look ended — send to everyone</button>' : '';
     return `<tr class="${selected.has(l.id) ? 'sel' : ''}">
       <td><input type="checkbox" data-sel="${l.id}" ${selected.has(l.id) ? 'checked' : ''} aria-label="Select load"></td>
       <td class="lanecell"><div class="lane">${esc(place(l.origin_city, l.origin_state, l.origin_zip))} <span class="arrow">→</span> ${esc(place(l.dest_city, l.dest_state, l.dest_zip))}</div>
@@ -675,6 +686,7 @@ $('#loadTable').onclick = async e => {
     if (act === 'bids') openBids(l);
     if (act === 'link') copyText(loadUrl(l));
     if (act === 'track') openFile(l.id);
+    if (act === 'fl') openNotify(l.id);
     if (act === 'dup') { const n = await api(`/api/admin/loads/${l.id}/duplicate`, { method: 'POST' }); await refreshLoads(); openLoad(n); toast('Duplicated as a draft'); }
     if (act === 'close') { await api(`/api/admin/loads/${l.id}`, { method: 'PUT', body: { status: 'closed' } }); toast('Bidding closed'); refreshLoads(); }
     if (act === 'open') {

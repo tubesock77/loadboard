@@ -128,6 +128,8 @@ function cleanLoad(input) {
   return out;
 }
 
+// a load in "first look" is only for your favorites: kept off the board, the daily email and lane alerts until you release it
+function inFirstLook(L) { return !!(L && L.first_look_until && !L.first_look_released); }
 function biddingOpen(L) {
   return L.status === 'open' && (!L.bid_deadline || Date.parse(L.bid_deadline) > Date.now());
 }
@@ -318,7 +320,7 @@ function baseUrl(req) {
 function buildDigest(base, loadIds, token) {
   const cfg = publicConfig();
   const pick = Array.isArray(loadIds) && loadIds.length ? new Set(loadIds.map(Number)) : null;
-  const loads = db.prepare(`SELECT * FROM loads WHERE status = 'open' ORDER BY pickup_date IS NULL, pickup_date, id`).all().filter(biddingOpen).filter(l => !pick || pick.has(l.id));
+  const loads = db.prepare(`SELECT * FROM loads WHERE status = 'open' ORDER BY pickup_date IS NULL, pickup_date, id`).all().filter(biddingOpen).filter(l => !inFirstLook(l)).filter(l => !pick || pick.has(l.id));
   const h = v => (v == null ? '' : String(v).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])));
   const tz = process.env.TIMEZONE || 'America/Denver';
   const day = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', timeZone: tz });
@@ -453,7 +455,7 @@ async function sendDailyEmail(base, onlyPass, loadIds, emails) {
   if (!Array.isArray(emails) && on('daily_match')) {
     // automatic lane targeting: only carriers whose bid history / home state fits today's loads
     const pick = Array.isArray(loadIds) && loadIds.length ? new Set(loadIds.map(Number)) : null;
-    const todays = db.prepare(`SELECT * FROM loads WHERE status = 'open'`).all().filter(biddingOpen).filter(l => !pick || pick.has(l.id));
+    const todays = db.prepare(`SELECT * FROM loads WHERE status = 'open'`).all().filter(biddingOpen).filter(l => !inFirstLook(l)).filter(l => !pick || pick.has(l.id));
     const fit = new Set(OPS.matchingEmails(todays, carrierContacts()));
     list = list.filter(e => fit.has(e));
   }
@@ -495,7 +497,7 @@ function startDailyScheduler() {
 }
 
 const OPS = require('./lib/ops')({ send, fail, readBody, adminLoad, insertLoad, mailer, emailLayout, siteBase, notifyTo, loadSubject, laneOf, usd, hx,
-  TIMEZONE, bidStats, loadFacts, serveFile, emailsAfterAward, normalizeMC: qualify.normalizeMC, placeBid: (...a) => placeBid(...a), biddingOpen, carrierContacts, publicConfig, bidStep });
+  TIMEZONE, bidStats, loadFacts, serveFile, emailsAfterAward, normalizeMC: qualify.normalizeMC, placeBid: (...a) => placeBid(...a), holdForFirstLook: (id, auto) => INBOX.holdForFirstLook(id, auto), biddingOpen, carrierContacts, publicConfig, bidStep });
 
 // ---------- placing a bid (website form, email reply, book-it-now) ----------
 // Every path goes through here so the same rules apply. Returns { ok, ... } or { ok:false, status, error }.
@@ -552,7 +554,7 @@ function placeBid(L, b, opts = {}) {
 }
 
 const INBOX = require('./lib/inbox')({ send, fail, readBody, limited, mailer, emailLayout, siteBase, notifyTo, usd, hx, laneOf, TIMEZONE,
-  placeBid: (...a) => placeBid(...a), biddingOpen, publicConfig, bidStats, normalizeMC: qualify.normalizeMC, serveFile, bidStep });
+  placeBid: (...a) => placeBid(...a), biddingOpen, publicConfig, bidStats, normalizeMC: qualify.normalizeMC, serveFile, bidStep, inFirstLook, notifyTo });
 
 // ---------- router ----------
 async function handle(req, res) {
@@ -605,7 +607,7 @@ async function handle(req, res) {
 
   if (m === 'GET' && p === '/api/loads') {
     const rows = db.prepare(`SELECT * FROM loads WHERE status = 'open' ORDER BY pickup_date IS NULL, pickup_date, id`).all();
-    return send(res, 200, rows.filter(biddingOpen).map(publicLoad).map(l => ({ ...l, route: undefined })));
+    return send(res, 200, rows.filter(biddingOpen).filter(L => !inFirstLook(L)).map(publicLoad).map(l => ({ ...l, route: undefined })));
   }
 
   let mm;
@@ -670,12 +672,13 @@ async function handle(req, res) {
     }
     if (m === 'POST' && p === '/api/admin/loads') {
       const id = insertLoad(await readBody(req));
+      INBOX.holdForFirstLook(id);
       return send(res, 200, adminLoad(db.prepare('SELECT * FROM loads WHERE id = ?').get(id)));
     }
     if ((mm = p.match(/^\/api\/admin\/loads\/(\d+)$/))) {
       const id = Number(mm[1]);
       if (m === 'GET') { const L = db.prepare('SELECT * FROM loads WHERE id = ?').get(id); return L ? send(res, 200, adminLoad(L)) : fail(res, 404, 'Not found'); }
-      if (m === 'PUT') { if (!updateLoad(id, await readBody(req))) return fail(res, 404, 'Not found'); return send(res, 200, adminLoad(db.prepare('SELECT * FROM loads WHERE id = ?').get(id))); }
+      if (m === 'PUT') { const wasOpen = (db.prepare('SELECT status FROM loads WHERE id = ?').get(id) || {}).status === 'open'; if (!updateLoad(id, await readBody(req))) return fail(res, 404, 'Not found'); if (!wasOpen) INBOX.holdForFirstLook(id); return send(res, 200, adminLoad(db.prepare('SELECT * FROM loads WHERE id = ?').get(id))); }
       if (m === 'DELETE') { db.prepare('DELETE FROM loads WHERE id = ?').run(id); return send(res, 200, { ok: true }); }
     }
     if (m === 'POST' && (mm = p.match(/^\/api\/admin\/loads\/(\d+)\/duplicate$/))) {
@@ -750,7 +753,7 @@ async function handle(req, res) {
       rows.forEach((r, i) => {
         const L = mapImportRow(r);
         if (!(L.origin_city || L.origin_zip) || !(L.dest_city || L.dest_zip)) { skipped.push(i + 2); return; }
-        created.push(insertLoad(L));
+        { const nid = insertLoad(L); INBOX.holdForFirstLook(nid); created.push(nid); }
       });
       return send(res, 200, { created: created.length, skipped, filename });
     }
@@ -844,5 +847,7 @@ server.listen(PORT, () => {
   startDailyScheduler();
   OPS.startRepeatScheduler();
   INBOX.start();
+  qualify.onRefresh = () => INBOX.highwayChanged();
+  setTimeout(() => { try { INBOX.highwayChanged(); } catch (_) { /* first snapshot */ } }, 3000);
   geo.resumePending();
 });

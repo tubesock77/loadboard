@@ -378,3 +378,17 @@ legend { font-family: var(--display); font-weight: 700; font-size: 16px; text-tr
 .ntrow { display: grid; grid-template-columns: 22px 1fr; gap: 8px; align-items: start; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font-weight: 500; font-size: 14.5px; cursor: pointer; }
 .ntrow input { width: 16px; height: 16px; margin-top: 3px; }
 .ntrow.done { opacity: .6; }
+
+/* first look / favorites */
+.star { border: 0; background: none; font-size: 19px; line-height: 1; cursor: pointer; color: var(--muted); padding: 0 2px; }
+.star.on { color: #d99a00; }
+button.chip { cursor: pointer; font-family: inherit; }
+.chip.fl { background: #fff4d6; border-color: #f0d68a; color: #7a5300; font-size: 12px; padding: 1px 8px; }
+.notice.fl { background: #fff8e4; color: #5c4300; border: 1px solid #f0d68a; }
+/* lane alerts grouped by carrier */
+.alg { border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; display: grid; gap: 4px; }
+.alg-lanes { display: grid; gap: 3px; padding-left: 18px; border-left: 2px solid var(--line); margin-left: 4px; }
+.alg-lane { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; font-size: 13.5px; }
+.alg-lane .x { border: 0; background: none; color: var(--muted); font-size: 16px; cursor: pointer; margin-left: auto; }
+#alertTable tr.alg-l td { padding-top: 3px; padding-bottom: 3px; border-bottom: 0; }
+#alertTable tr.alg-head td { border-top: 1px solid var(--line); padding-bottom: 2px; }
