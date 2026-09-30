@@ -70,6 +70,7 @@ async function refreshInbox() {
         ${canAdd ? `<button class="btn sm primary" data-ib="send" data-id="${r.id}" title="Put this in the Bids window — nothing is sent to the carrier">Add as bid</button>` : ''}
         ${['needs_you', 'draft', 'error'].includes(r.status) ? `<button class="btn sm" data-ib="done" data-id="${r.id}" title="I handled it in Outlook">Done</button><button class="btn sm" data-ib="ignore" data-id="${r.id}">Ignore</button>` : `<button class="btn sm" data-ib="reopen" data-id="${r.id}">Reopen</button>`}
         ${['needs_you', 'draft'].includes(r.status) ? `<button class="btn sm" data-ib="reprocess" data-id="${r.id}" title="Read it again (e.g. after posting the load it asks about)">Re-read</button>` : ''}
+        <button class="btn sm ${canSend || canAdd ? '' : 'primary'}" data-ibwrite="${r.id}" title="Write your own reply here, or send them load details">✉ Reply / send loads</button>
         ${r.web_link ? `<a class="btn sm" href="${esc(r.web_link)}" target="_blank" rel="noopener">Open in Outlook ↗</a>` : ''}
         ${r.mc ? `<button class="btn sm" data-ibcp="${esc(r.mc)}">Carrier</button>` : ''}
       </div></article>`;
@@ -77,6 +78,7 @@ async function refreshInbox() {
 }
 $('#ibList').onclick = async e => {
   const cp = e.target.closest('[data-ibcp]'); if (cp) { openCarrier(cp.dataset.ibcp); return; }
+  const wr = e.target.closest('[data-ibwrite]'); if (wr) { openWrite(Number(wr.dataset.ibwrite)); return; }
   const b = e.target.closest('[data-ib]'); if (!b) return;
   const id = b.dataset.id, act = b.dataset.ib;
   const note = ($(`[data-note="${id}"]`) || {}).value || '';
@@ -145,3 +147,35 @@ $('#newAlert').onclick = async () => {
 // keep the tab badge fresh
 setInterval(async () => { if (typeof refsLoaded !== 'undefined' && refsLoaded) { try { ib.settings = await api('/api/admin/inbox/settings'); const s = ib.settings; const open = (s.counts.needs_you || 0) + (s.counts.draft || 0) + (s.counts.error || 0); $('#inboxCount').hidden = !open; $('#inboxCount').textContent = open; } catch (_) { /* signed out */ } } }, 120000);
 setTimeout(async () => { try { const s = await api('/api/admin/inbox/settings'); ib.settings = s; const open = (s.counts.needs_you || 0) + (s.counts.draft || 0) + (s.counts.error || 0); $('#inboxCount').hidden = !open; $('#inboxCount').textContent = open; } catch (_) { /* not signed in */ } }, 2500);
+
+// ---------- write a reply here (their thread), optionally with load details + buttons ----------
+let wr = { row: null, picked: new Set() };
+async function openWrite(id) {
+  const r = ib.rows.find(x => x.id === id); if (!r) return;
+  if (!loads || !loads.length) await refreshLoads().catch(() => {});
+  const open = (loads || []).filter(l => l.status === 'open' && l.bidding_open);
+  wr = { row: r, picked: new Set(r.loads.map(l => l.id).filter(id => open.some(o => o.id === id))) };
+  $('#wrTitle').textContent = `Reply to ${r.company || r.from_name || r.from_email}`;
+  $('#wrWho').innerHTML = `${esc(r.from_name || '')} &lt;${esc(r.from_email)}&gt;${r.mc ? ' · MC ' + esc(r.mc) : ''}<div class="muted sm">${esc(r.subject || '')}</div>`;
+  $('#wrTheirs').textContent = r.body || '';
+  $('#wrText').value = '';
+  $('#wrLoads').innerHTML = open.length ? open.map(l => `<label class="ntrow"><input type="checkbox" data-wrl="${l.id}" ${wr.picked.has(l.id) ? 'checked' : ''}>
+      <div><b>${esc(place(l.origin_city, l.origin_state))} → ${esc(place(l.dest_city, l.dest_state))}</b> <span class="muted sm">${esc(l.ref ? '#' + l.ref : l.public_id)}</span>
+      <div class="muted sm">${[l.pickup_date ? 'PU ' + fmtDate(l.pickup_date) : '', l.equipment, l.post_rate ? money(l.post_rate) : 'no posted rate'].filter(Boolean).map(esc).join(' · ')}</div></div></label>`).join('')
+    : '<div class="muted sm">No open loads right now.</div>';
+  $('#wrPrev').hidden = true; $('#wrMsg').innerHTML = '';
+  wrCount(); $('#writeDlg').showModal(); $('#wrText').focus();
+}
+function wrCount() { const n = wr.picked.size; $('#wrSend').textContent = n ? `Send reply + ${n} load${n === 1 ? '' : 's'}` : 'Send reply'; }
+$('#wrLoads').onchange = e => { const x = e.target.closest('[data-wrl]'); if (!x) return; x.checked ? wr.picked.add(Number(x.dataset.wrl)) : wr.picked.delete(Number(x.dataset.wrl)); wrCount(); };
+const wrBody = extra => ({ text: $('#wrText').value, load_ids: [...wr.picked], ...extra });
+$('#wrPreview').onclick = async () => {
+  try { const d = await api(`/api/admin/inbox/${wr.row.id}/write`, { method: 'POST', body: wrBody({ preview: true }) }); $('#wrPrev').srcdoc = d.html; $('#wrPrev').hidden = false; }
+  catch (err) { $('#wrMsg').innerHTML = `<div class="notice err">${esc(err.message)}</div>`; }
+};
+$('#wrSend').onclick = async () => {
+  $('#wrSend').disabled = true;
+  try { await api(`/api/admin/inbox/${wr.row.id}/write`, { method: 'POST', body: wrBody() }); $('#writeDlg').close(); toast('Reply sent in their email thread'); loadInbox(); }
+  catch (err) { $('#wrMsg').innerHTML = `<div class="notice err">${esc(err.message)}</div>`; }
+  $('#wrSend').disabled = false;
+};

@@ -492,6 +492,19 @@
   <div class="dlg-foot"><span class="muted sm" style="margin-right:auto">Untick anyone you don't want. Columns match your phone's CSV import template.</span><button class="btn" type="button" data-close>Close</button><button class="btn primary" type="button" id="phDownload" disabled>Download CSV</button></div>
 </dialog>
 
+<dialog id="writeDlg" style="width:min(900px, calc(100vw - 24px))">
+  <div class="dlg-head"><h2 id="wrTitle">Reply</h2><button class="x" type="button" data-close aria-label="Close">×</button></div>
+  <div class="dlg-body">
+    <div id="wrWho"></div>
+    <details><summary class="sm">Their email</summary><pre class="ibbody" id="wrTheirs" style="max-height:220px;overflow:auto"></pre></details>
+    <div class="field"><label for="wrText">Your message <span class="hint">(leave blank to send just the load details with your standard wording)</span></label><textarea id="wrText" rows="4" placeholder="Hi, here are the details. Rate is all-in."></textarea></div>
+    <div class="field"><label>Include load details <span class="hint">(one-line layout with Can cover / Make an offer buttons)</span></label><div id="wrLoads" class="ntlist" style="max-height:240px"></div></div>
+    <div id="wrMsg"></div>
+    <iframe id="wrPrev" class="ibprev" sandbox hidden style="width:100%;height:360px;border:1px solid var(--line);border-radius:8px;background:#fff"></iframe>
+  </div>
+  <div class="dlg-foot"><span class="muted sm" style="margin-right:auto">Sent from loads@ inside their email thread. Their email is marked read.</span><button class="btn" type="button" data-close>Cancel</button><button class="btn" type="button" id="wrPreview">Preview</button><button class="btn primary" type="button" id="wrSend">Send reply</button></div>
+</dialog>
+
 <!-- award to a carrier booked outside the site -->
 <dialog id="bookDlg" style="width:min(640px, calc(100vw - 24px))">
   <form id="bookForm" method="dialog">
