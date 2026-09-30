@@ -82,7 +82,7 @@
           <label><input type="radio" name="ibmode" value="review"> Review <span class="hint">(replies wait for you)</span></label>
           <label><input type="radio" name="ibmode" value="auto"> Automatic <span class="hint">(sends on its own)</span></label>
         </div>
-        <div class="actions"><span id="ibStatus" class="muted sm"></span><button class="btn sm" type="button" id="ibCheck">Check now</button><button class="btn sm" type="button" id="ibTplBtn">Replies &amp; wording</button><button class="btn sm" type="button" id="ibTestBtn">Try an email</button><button class="btn sm" type="button" id="ibLookBtn">Look back through past emails</button></div>
+        <div class="actions"><span id="ibStatus" class="muted sm"></span><button class="btn sm" type="button" id="ibCheck">Check now</button><button class="btn sm" type="button" id="ibTplBtn">Replies &amp; wording</button><button class="btn sm" type="button" id="ibTestBtn">Try an email</button><button class="btn sm" type="button" id="ibLookBtn">Look back through past emails</button><button class="btn sm" type="button" id="ibPhoneBtn">Contacts for my phone</button></div>
       </div>
       <div id="ibSetup"></div>
       <div class="hwbanner"></div>
@@ -478,6 +478,18 @@
     <div id="lkList"></div>
   </div>
   <div class="dlg-foot"><button class="btn" type="button" data-close>Close</button><button class="btn primary" type="button" id="lkApply" disabled>Add selected</button></div>
+</dialog>
+
+<dialog id="phoneDlg" style="width:min(1000px, calc(100vw - 24px))">
+  <div class="dlg-head"><h2>Contacts for my phone</h2><button class="x" type="button" data-close aria-label="Close">×</button></div>
+  <div class="dlg-body">
+    <p class="help" style="margin:0">Reads past mail in loads@ (nothing is changed or sent) and builds one contact per person who emailed you: name, phone from their signature, company, title, address, email and website. Download the CSV and import it into your phone app so you know who's calling.</p>
+    <div class="actions"><select id="phDays" style="width:auto"><option value="30">Last 30 days</option><option value="90">Last 90 days</option><option value="180" selected>Last 180 days</option><option value="365">Last year</option></select>
+      <label class="sm" style="display:inline-flex;align-items:center;gap:6px;margin:0;font-weight:500"><input type="checkbox" id="phOnly" checked style="width:auto;margin:0"> Only people with a phone number</label>
+      <button class="btn primary" type="button" id="phRun">Scan</button><span id="phStatus" class="muted sm"></span></div>
+    <div id="phList"></div>
+  </div>
+  <div class="dlg-foot"><span class="muted sm" style="margin-right:auto">Untick anyone you don't want. Columns match your phone's CSV import template.</span><button class="btn" type="button" data-close>Close</button><button class="btn primary" type="button" id="phDownload" disabled>Download CSV</button></div>
 </dialog>
 
 <!-- award to a carrier booked outside the site -->

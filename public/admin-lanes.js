@@ -219,3 +219,38 @@ async function showHighwayChanges() {
     const k = el.querySelector('[data-hwok]'); if (k) k.onclick = async () => { await api('/api/admin/highway-changes', { method: 'DELETE' }); showHighwayChanges(); }; });
 }
 $$('.tabs button').forEach(b => b.addEventListener('click', () => { if (b.dataset.tab === 'lanes' || b.dataset.tab === 'inbox') showHighwayChanges(); }));
+
+// ---------- contacts for my phone (CSV in the phone app's import template) ----------
+let ph = [];
+const PH_COLS = ['First Name', 'Last Name', 'Phone Number', 'Address', 'City', 'State', 'Zip Code', 'Country', 'Email', 'Company', 'Role', 'Website'];
+const PH_KEYS = ['first', 'last', 'phone', 'address', 'city', 'state', 'zip', 'country', 'email', 'company', 'role', 'website'];
+$('#ibPhoneBtn').onclick = () => { $('#phList').innerHTML = ''; $('#phStatus').textContent = ''; $('#phDownload').disabled = true; $('#phoneDlg').showModal(); };
+function renderPhone() {
+  const only = $('#phOnly').checked, list = ph.map((c, i) => ({ c, i })).filter(x => !only || x.c.phone);
+  const withPh = ph.filter(c => c.phone).length;
+  $('#phStatus').textContent = ph.length ? `${ph.length} people emailed you · ${withPh} with a phone number` : $('#phStatus').textContent;
+  $('#phList').innerHTML = list.length ? `<div class="panel table-wrap" style="max-height:52vh;overflow:auto"><table class="data"><thead><tr><th style="width:30px"><input type="checkbox" id="phAll" checked aria-label="All"></th><th>Company · contact</th><th>Phone</th><th>Title</th><th>Address</th><th>Website</th></tr></thead><tbody>` +
+    list.map(({ c, i }) => `<tr><td><input type="checkbox" data-ph="${i}" ${c._off ? '' : 'checked'}></td>
+      <td><b>${esc(c.company || [c.first, c.last].join(' '))}</b>${c.mc ? ` <span class="muted sm">MC ${esc(c.mc)}</span>` : ''}<div class="muted sm">${c.company ? esc([c.first, c.last].join(' ')) + ' · ' : ''}${esc(c.email)}</div></td>
+      <td style="white-space:nowrap">${c.phone ? `<span class="mono">${esc(c.phone)}</span><div class="muted sm">${esc(c.phone_from)}${c.other_phones.length ? ` · also ${c.other_phones.map(esc).join(', ')}` : ''}</div>` : '<span class="muted">—</span>'}</td>
+      <td class="sm">${esc(c.role || '')}</td><td class="sm">${esc([c.address, [c.city, c.state].filter(Boolean).join(', '), c.zip].filter(Boolean).join(' '))}</td><td class="sm">${esc((c.website || '').replace(/^https?:\/\//, ''))}</td></tr>`).join('') + '</tbody></table></div>'
+    : (ph.length ? '<div class="panel empty">Nobody with a phone number in that period. Untick "Only people with a phone number" to see everyone.</div>' : '');
+  $('#phDownload').disabled = !list.some(x => !x.c._off);
+  const all = $('#phAll'); if (all) all.onchange = () => { list.forEach(x => x.c._off = !all.checked); renderPhone(); };
+}
+$('#phList').onchange = e => { const x = e.target.closest('[data-ph]'); if (!x) return; ph[Number(x.dataset.ph)]._off = !x.checked; $('#phDownload').disabled = !ph.some(c => !c._off && (!$('#phOnly').checked || c.phone)); };
+$('#phOnly').onchange = renderPhone;
+$('#phRun').onclick = async () => {
+  $('#phStatus').textContent = 'Reading past emails… this can take a minute or two.'; $('#phRun').disabled = true; $('#phList').innerHTML = '';
+  try { const d = await api('/api/admin/inbox/contacts', { method: 'POST', body: { days: $('#phDays').value } }); ph = d.contacts; $('#phStatus').textContent = ''; renderPhone(); $('#phStatus').textContent = `Read ${d.scanned} emails · ` + $('#phStatus').textContent; }
+  catch (err) { $('#phStatus').textContent = err.message; }
+  $('#phRun').disabled = false;
+};
+$('#phDownload').onclick = () => {
+  const only = $('#phOnly').checked, rows = ph.filter(c => !c._off && (!only || c.phone));
+  const q = v => { v = String(v ?? ''); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+  const csv = [PH_COLS.join(','), ...rows.map(c => PH_KEYS.map(k => q(c[k])).join(','))].join('\r\n') + '\r\n';
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+  a.download = `loads-contacts-${new Date().toISOString().slice(0, 10)}.csv`; document.body.appendChild(a); a.click(); a.remove();
+  toast(`Downloaded ${rows.length} contact${rows.length === 1 ? '' : 's'}`);
+};
