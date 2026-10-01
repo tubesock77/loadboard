@@ -668,7 +668,7 @@ function renderLoads() {
   const fn = $('#flNotice'); if (fn) { fn.hidden = !flWait.length; fn.innerHTML = flWait.length ? `<b>★ ${flWait.length} load${flWait.length === 1 ? '' : 's'} waiting on you for first look:</b> ` + flWait.map(l => `<button class="linkbtn" type="button" data-flopen="${l.id}">${esc(place(l.origin_city, l.origin_state))} → ${esc(place(l.dest_city, l.dest_state))}${l.first_look_until.startsWith('9999') ? ' (not sent yet)' : ' (ended)'}</button>`).join(' · ') : '';
     $$('[data-flopen]').forEach(b => b.onclick = () => openNotify(Number(b.dataset.flopen))); }
   if (!list.length) { $('#loadTable').innerHTML = `<tbody><tr><td class="empty">${loads.length ? (sf === 'active' ? 'No active loads. Awarded loads are on the <b>Awarded</b> tab; closed ones are under the status filter.' : 'No loads match.') : 'No loads yet. Click <b>+ New load</b> or <b>Import loads</b> to post your first one.'}</td></tr></tbody>`; return; }
-  $('#loadTable').innerHTML = `<thead><tr><th style="width:30px"><input type="checkbox" id="selAll" aria-label="Select all shown"></th><th>Lane</th><th>Pickup</th><th class="num" title="Loaded miles · estimated break-even (incl. deadhead) · DAT market">Miles · cost</th><th class="num">Low bid</th><th>Due</th><th></th></tr></thead>
+  $('#loadTable').innerHTML = `<thead><tr><th style="width:30px"><input type="checkbox" id="selAll" aria-label="Select all shown"></th><th>Lane</th><th>Pickup</th><th class="num" title="The rate carriers see (Rate to post) · estimated break-even · DAT market">Carrier rate</th><th class="num">Low bid</th><th>Due</th><th></th></tr></thead>
   <tbody>${list.map(l => {
     const st = l.status === 'open' && !l.bidding_open ? 'closed' : l.status;
     const stLabel = l.status === 'open' && !l.bidding_open ? 'Expired' : l.status;
@@ -684,7 +684,7 @@ function renderLoads() {
       <td class="lanecell"><div class="lane">${esc(place(l.origin_city, l.origin_state, l.origin_zip))} <span class="arrow">→</span> ${esc(place(l.dest_city, l.dest_state, l.dest_zip))}</div>
         <div class="meta"><span class="status ${st}">${esc(l.status === 'awarded' && l.stage && l.stage !== 'awarded' ? stageLabel(l.stage) : stLabel)}</span> <span class="mono">${l.ref ? '#' + esc(l.ref) : esc(l.public_id)}</span>${src}${l.customer ? ' · ' + esc(l.customer) : ''}${geoNote}</div></td>
       <td style="white-space:nowrap">${esc(fmtDate(l.pickup_date))}<div class="muted sm">${esc(l.equipment || '')}</div></td>
-      <td class="num">${l.miles ? Number(l.miles).toLocaleString() + ' mi' : '—'}${l.cost && l.cost.breakeven ? `<div class="sm">BE ${esc(money(l.cost.breakeven))}</div><div class="muted sm">mkt ${esc(money(l.cost.market))}</div>` : ''}</td>
+      <td class="num">${l.post_rate ? `<b style="color:var(--good)">${esc(money(l.post_rate))}</b>` : '<span class="muted sm" title="No Rate to post — carriers are asked for offers">offers</span>'}${l.cost && l.cost.breakeven ? `<div class="sm">BE ${esc(money(l.cost.breakeven))}</div><div class="muted sm">mkt ${esc(money(l.cost.market))}</div>` : ''}</td>
       <td class="num">${l.bid_count ? `<b style="${overTarget ? 'color:var(--bad)' : ''}">${esc(money(l.low_bid))}</b>` : '—'}
         <div class="muted sm">${l.bid_count} bid${l.bid_count === 1 ? '' : 's'}${l.bid_count ? ` · <span style="color:${l.pass_count ? 'var(--good)' : 'inherit'}">${l.pass_count} pass</span>` : ''}</div>
         ${l.target_rate ? `<div class="muted sm">target ${esc(money(l.target_rate))}</div>` : ''}${l.bid_count ? costChip(l.low_tag, true) : ''}</td>
