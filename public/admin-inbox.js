@@ -55,7 +55,7 @@ async function refreshInbox() {
     return `<article class="ibitem" data-id="${r.id}">
       <header>
         <div><span class="chip ${cls}" style="font-size:11.5px;padding:1px 8px">${esc(lab)}</span> <span class="chip" style="font-size:11.5px;padding:1px 8px">${esc(KIND[r.kind] || r.kind)}</span>${flagChip(r.carrier_flag)}
-          <div class="ibfrom"><b>${esc(r.company || r.from_name || r.from_email)}</b>${r.mc ? ` <span class="mono muted sm">MC ${esc(r.mc)}</span>` : ''}<div class="muted sm">${r.company && r.from_name ? esc(r.from_name) + ' · ' : ''}${esc(r.from_email)}</div></div>
+          <div class="ibfrom"><b>${esc(r.company || r.from_name || r.from_email)}</b>${r.mc || r.highway_mc ? ` <span class="mono muted sm">MC ${esc(r.mc || r.highway_mc)}</span>` : ''} ${hwBadge(r)}<div class="muted sm">${r.company && r.from_name ? esc(r.from_name) + ' · ' : ''}${esc(r.from_email)}</div></div>
           <div class="ibsubj">${esc(r.subject || '(no subject)')}</div></div>
         <div class="muted sm" style="white-space:nowrap">${esc(fmtDateTime(r.received_at))}</div>
       </header>
@@ -75,6 +75,12 @@ async function refreshInbox() {
         ${r.mc ? `<button class="btn sm" data-ibcp="${esc(r.mc)}">Carrier</button>` : ''}
       </div></article>`;
   }).join('');
+}
+// Highway check right on the card: by the MC in their email (or their earlier emails/bids), else by their email in the Highway sheet
+function hwBadge(r) {
+  if (r.highway_pass) return `<span class="chip good" style="font-size:11.5px;padding:1px 8px" title="${r.mc ? 'MC ' + esc(r.mc) : 'Matched by email'} is on your Highway list">✓ On Highway</span>`;
+  if (r.mc) return '<span class="chip bad" style="font-size:11.5px;padding:1px 8px" title="This MC is not on your Highway list">✗ Not on Highway list</span>';
+  return '<span class="chip warn" style="font-size:11.5px;padding:1px 8px" title="No MC in the email and their email isn\'t in the Highway sheet — ask for their MC">No MC found</span>';
 }
 $('#ibList').onclick = async e => {
   const cp = e.target.closest('[data-ibcp]'); if (cp) { openCarrier(cp.dataset.ibcp); return; }
@@ -156,7 +162,7 @@ async function openWrite(id) {
   const open = (loads || []).filter(l => l.status === 'open' && l.bidding_open);
   wr = { row: r, picked: new Set(r.loads.map(l => l.id).filter(id => open.some(o => o.id === id))) };
   $('#wrTitle').textContent = `Reply to ${r.company || r.from_name || r.from_email}`;
-  $('#wrWho').innerHTML = `${esc(r.from_name || '')} &lt;${esc(r.from_email)}&gt;${r.mc ? ' · MC ' + esc(r.mc) : ''}<div class="muted sm">${esc(r.subject || '')}</div>`;
+  $('#wrWho').innerHTML = `${esc(r.from_name || '')} &lt;${esc(r.from_email)}&gt;${r.mc ? ' · MC ' + esc(r.mc) : ''} ${hwBadge(r)}<div class="muted sm">${esc(r.subject || '')}</div>`;
   $('#wrTheirs').textContent = r.body || '';
   $('#wrText').value = '';
   $('#wrLoads').innerHTML = open.length ? open.map(l => `<label class="ntrow"><input type="checkbox" data-wrl="${l.id}" ${wr.picked.has(l.id) ? 'checked' : ''}>
