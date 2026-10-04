@@ -34,7 +34,7 @@ let L0 = null, cfg = {}, myState = null;
 
 function specs(l) {
   const items = [
-    ['Equipment', l.equipment], ['Temp', l.temp], ['Weight', weight(l.weight)], ['Pallets / pieces', l.pallets],
+    ['Equipment', l.equipment], ['Temp', l.temp], ['Weight', weight(l.weight)],
     ['Commodity', l.commodity], ['Miles', l.miles ? Number(l.miles).toLocaleString() : ''], ['Extra stops', l.stops || ''],
     ['Load #', l.ref], ['Posting ID', l.public_id],
   ].filter(([, v]) => v !== '' && v != null);
