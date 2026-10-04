@@ -5,7 +5,7 @@ const STATUS = { draft: ['warn', 'Draft — review & send'], needs_you: ['bad', 
 const TPL_LABELS = {
   tpl_greeting: 'Greeting', tpl_loads: 'Loads found (lane request)', tpl_more: 'Nearby loads heading', tpl_none: 'Nothing on that lane', tpl_howto: 'How to respond (added under loads)', tpl_buttons_note: 'Line under the buttons',
   tpl_load: 'Details for one load', tpl_bid: 'Bid received', tpl_bid_problem: "Bid couldn't be entered", tpl_book: 'Book it now received', tpl_closed: 'Load no longer available',
-  tpl_remove: 'Removed from list', tpl_alert: 'Lane alert (new load posted)', tpl_notify: 'Load email to lane carriers', tpl_first_look: 'First look email (favorites)', tpl_value: 'Why haul with us (added to every reply)', tpl_signoff: 'Sign-off' };
+  tpl_remove: 'Removed from list', tpl_alert: 'Lane alert (new load posted)', tpl_notify: 'Load email to lane carriers', tpl_first_look: 'First look email (favorites)', tpl_not_approved: 'Not on Highway / not approved ({mc} = their MC)', tpl_value: 'Why haul with us (added to every reply)', tpl_signoff: 'Sign-off' };
 
 async function loadInbox() {
   ib.settings = await api('/api/admin/inbox/settings');
@@ -70,6 +70,7 @@ async function refreshInbox() {
         ${canAdd ? `<button class="btn sm primary" data-ib="send" data-id="${r.id}" title="Put this in the Bids window — nothing is sent to the carrier">Add as bid</button>` : ''}
         ${['needs_you', 'draft', 'error'].includes(r.status) ? `<button class="btn sm" data-ib="done" data-id="${r.id}" title="I handled it in Outlook">Done</button><button class="btn sm" data-ib="ignore" data-id="${r.id}">Ignore</button>` : `<button class="btn sm" data-ib="reopen" data-id="${r.id}">Reopen</button>`}
         ${['needs_you', 'draft'].includes(r.status) ? `<button class="btn sm" data-ib="reprocess" data-id="${r.id}" title="Read it again (e.g. after posting the load it asks about)">Re-read</button>` : ''}
+        ${r.mc && !r.highway_pass && r.status !== 'sent' ? `<button class="btn sm danger" data-ibdecline="${r.id}" title="Reply in their thread that they don't pass Highway, so they can sort it out with Highway">✗ Not approved — tell them</button>` : ''}
         <button class="btn sm ${canSend || canAdd ? '' : 'primary'}" data-ibwrite="${r.id}" title="Write your own reply here, or send them load details">✉ Reply / send loads</button>
         ${r.web_link ? `<a class="btn sm" href="${esc(r.web_link)}" target="_blank" rel="noopener">Open in Outlook ↗</a>` : ''}
         ${r.mc ? `<button class="btn sm" data-ibcp="${esc(r.mc)}">Carrier</button>` : ''}
@@ -85,6 +86,16 @@ function hwBadge(r) {
 $('#ibList').onclick = async e => {
   const cp = e.target.closest('[data-ibcp]'); if (cp) { openCarrier(cp.dataset.ibcp); return; }
   const wr = e.target.closest('[data-ibwrite]'); if (wr) { openWrite(Number(wr.dataset.ibwrite)); return; }
+  const dc = e.target.closest('[data-ibdecline]'); if (dc) {
+    const id = Number(dc.dataset.ibdecline), r = ib.rows.find(x => x.id === id);
+    try {
+      const pv = await api(`/api/admin/inbox/${id}/decline`, { method: 'POST', body: { preview: true } });
+      if (!confirm(`Send this to ${r.from_name || r.from_email} (MC ${r.mc})?\n\n"${pv.text}"\n\n(You can change the wording under Replies & wording.)`)) return;
+      dc.disabled = true;
+      await api(`/api/admin/inbox/${id}/decline`, { method: 'POST' }); toast('Sent — they know they don\'t pass Highway'); loadInbox();
+    } catch (err) { toast(err.message); dc.disabled = false; }
+    return;
+  }
   const b = e.target.closest('[data-ib]'); if (!b) return;
   const id = b.dataset.id, act = b.dataset.ib;
   const note = ($(`[data-note="${id}"]`) || {}).value || '';
