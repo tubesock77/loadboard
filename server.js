@@ -130,8 +130,9 @@ function cleanLoad(input) {
 
 // a load in "first look" is only for your favorites: kept off the board, the daily email and lane alerts until you release it
 function inFirstLook(L) { return !!(L && L.first_look_until && !L.first_look_released); }
+// a load is on the board until you award or close it (no bid deadline any more)
 function biddingOpen(L) {
-  return L.status === 'open' && (!L.bid_deadline || Date.parse(L.bid_deadline) > Date.now());
+  return L.status === 'open';
 }
 
 const bidStats = db.prepare(`SELECT COUNT(*) AS bid_count, MIN(amount) AS low_bid FROM bids WHERE load_id = ?`);
@@ -142,9 +143,7 @@ const passStats = db.prepare(`SELECT COUNT(*) AS pass_count, MIN(b.amount) AS lo
 function publicLoad(L) {
   const o = {};
   for (const f of PUBLIC_FIELDS) o[f] = L[f];
-  const s = bidStats.get(L.id);
-  o.bid_count = s.bid_count; o.low_bid = s.low_bid;
-  o.bidding_open = biddingOpen(L);
+  o.bidding_open = biddingOpen(L); // other carriers' offers are never shown
   o.bid_step = bidStep();
   o.route = L.route_geojson ? JSON.parse(L.route_geojson) : null;
   return o;
@@ -211,6 +210,7 @@ const IMPORT_ALIASES = {
   requirements: ['requirements', 'special_requirements', 'accessorials'],
   notes: ['notes', 'comments'],
   target_rate: ['target_rate', 'target', 'budget'],
+  post_rate: ['post_rate', 'rate', 'posted_rate', 'carrier_rate', 'rate_to_post'],
   bid_deadline: ['bid_deadline', 'deadline', 'bids_due', 'bid_due'],
   miles: ['miles', 'distance'],
   contact_name: ['contact_name', 'contact'], contact_phone: ['contact_phone', 'phone'], contact_email: ['contact_email', 'email'],
@@ -271,6 +271,12 @@ function publicConfig() {
 // Loads that came from Smartsheet / Google Sheet become regular admin-managed loads.
 db.exec("UPDATE loads SET source = 'manual' WHERE source IN ('smartsheet', 'sheet')");
 db.exec('UPDATE loads SET book_rate = NULL WHERE book_rate IS NOT NULL');
+// Oct 2026: no bid deadlines any more. Once, close loads that had already expired so they don't reappear on the board.
+if (getSetting('migr_no_deadline') !== '1') {
+  db.prepare(`UPDATE loads SET status = 'closed' WHERE status = 'open' AND bid_deadline IS NOT NULL AND bid_deadline < ?`).run(new Date().toISOString());
+  db.exec(`UPDATE lanes SET repeat_on = 0`); // automatic lane posting removed
+  setSetting('migr_no_deadline', '1');
+}
 
 // ---------- carrier email list ----------
 const EMAIL_RE = /[^\s@,;<>]+@[^\s@,;<>]+\.[a-z]{2,}/gi;
@@ -334,12 +340,12 @@ function buildDigest(base, loadIds, token) {
     const eq = [l.equipment, l.temp].filter(Boolean).join(' · ');
     const det = [eq, l.commodity, l.weight ? Number(l.weight).toLocaleString() + ' lb' : '', l.miles ? Math.round(l.miles).toLocaleString() + ' mi' : ''].filter(Boolean).join(' · ');
     return {
-      text: `${place(l.origin_city, l.origin_state, l.origin_zip)} → ${place(l.dest_city, l.dest_state, l.dest_zip)}\n  Pick up ${fmtD(l.pickup_date)}${l.pickup_window ? ' ' + l.pickup_window : ''} · Deliver ${fmtD(l.delivery_date)}\n  ${det}${l.bid_deadline ? `\n  Bids due ${fmtDue(l.bid_deadline)}` : ''}\n  View & bid: ${url}`,
+      text: `${place(l.origin_city, l.origin_state, l.origin_zip)} → ${place(l.dest_city, l.dest_state, l.dest_zip)}\n  Pick up ${fmtD(l.pickup_date)}${l.pickup_window ? ' ' + l.pickup_window : ''} · Deliver ${fmtD(l.delivery_date)}\n  ${det}\n  View: ${url}`,
       html: `<tr>
         <td style="padding:12px 10px;border-bottom:1px solid #D6DCE6;vertical-align:top">
           <div style="font:700 16px Arial,sans-serif;color:#141B27;text-transform:uppercase">${h(place(l.origin_city, l.origin_state, l.origin_zip))} &rarr; ${h(place(l.dest_city, l.dest_state, l.dest_zip))}</div>
           <div style="font:14px Arial,sans-serif;color:#586478;margin-top:4px">${h(det)}</div>${l.post_rate ? `<div style="font:700 15px Arial,sans-serif;color:#17724A;margin-top:4px">Rate ${h('$' + Number(l.post_rate).toLocaleString('en-US'))}</div>` : ''}</td>
-        <td style="padding:12px 10px;border-bottom:1px solid #D6DCE6;vertical-align:top;font:14px Arial,sans-serif;color:#141B27;white-space:nowrap">PU ${h(fmtD(l.pickup_date))}<br>DEL ${h(fmtD(l.delivery_date))}${l.bid_deadline ? `<br><span style="color:#B7780A">Due ${h(fmtDue(l.bid_deadline))}</span>` : ''}</td>
+        <td style="padding:12px 10px;border-bottom:1px solid #D6DCE6;vertical-align:top;font:14px Arial,sans-serif;color:#141B27;white-space:nowrap">PU ${h(fmtD(l.pickup_date))}<br>DEL ${h(fmtD(l.delivery_date))}</td>
         <td style="padding:12px 10px;border-bottom:1px solid #D6DCE6;vertical-align:top;text-align:right">
           ${token ? `${l.post_rate ? `<a href="${h(`${base}/o/${token}/${l.public_id}?a=cover`)}" style="display:inline-block;background:#17724A;color:#ffffff;font:700 13px Arial,sans-serif;text-decoration:none;padding:8px 12px;border-radius:6px;margin:0 0 6px;white-space:nowrap">Can cover</a><br>` : ''}<a href="${h(`${base}/o/${token}/${l.public_id}?a=offer`)}" style="display:inline-block;background:#1D4F9E;color:#ffffff;font:700 13px Arial,sans-serif;text-decoration:none;padding:8px 12px;border-radius:6px;white-space:nowrap">Make an offer</a>`
             : `<a href="${h(url)}" style="display:inline-block;background:#1D4F9E;color:#ffffff;font:700 14px Arial,sans-serif;text-decoration:none;padding:8px 14px;border-radius:6px">View &amp; bid</a>`}</td></tr>`,
@@ -402,7 +408,7 @@ function emailsAfterBid(L, bid, prevLow, opt = {}) {
         `<b>${hx(bid.company)}</b> · MC ${hx(bid.mc)} · ${pass ? '<span style="color:#17724A;font-weight:700">✓ Highway pass</span>' : '<span style="color:#B42318;font-weight:700">✗ Not on Highway list</span>'}<br>
          ${[bid.contact_name, bid.phone, bid.email].filter(Boolean).map(hx).join(' · ')}
          ${bid.notes ? `<br><i>“${hx(bid.notes)}”</i>` : ''}
-         <p style="margin:12px 0 0"><b>${hx(laneOf(L))}</b>${L.ref ? ' · #' + hx(L.ref) : ''}<br>${L.post_rate ? `Your posted rate ${usd(L.post_rate)} · ` : ''}Low bid ${usd(st.low_bid)} · ${st.bid_count} bid${st.bid_count === 1 ? '' : 's'}${L.target_rate ? ` · target ${usd(L.target_rate)}` : ''}</p>
+         <p style="margin:12px 0 0"><b>${hx(laneOf(L))}</b>${L.ref ? ' · #' + hx(L.ref) : ''}<br>${L.post_rate ? `Your posted rate ${usd(L.post_rate)} · ` : ''}${st.bid_count} response${st.bid_count === 1 ? '' : 's'} so far · lowest ${usd(st.low_bid)}</p>
          ${bid.email ? '<p style="color:#586478;font-size:13px">Reply to this email to reach the carrier.</p>' : ''}`,
         siteBase() ? { url: `${siteBase()}/admin`, label: 'Open admin' } : null) }, 'bid alert');
   }
@@ -412,22 +418,12 @@ function emailsAfterBid(L, bid, prevLow, opt = {}) {
         `Thanks, ${hx(bid.contact_name || bid.company)}. You asked to book <b>${hx(laneOf(L))}</b>${L.ref ? ' (#' + hx(L.ref) + ')' : ''} at the posted rate of <b>${usd(bid.amount)}</b>.${loadFacts(L)}
          <p>We'll confirm shortly and send the rate confirmation. Reply to this email with any questions.</p>`, url ? { url, label: 'View load' } : null) }, 'book-now confirmation');
   } else if (on('em_bid_confirm') && bid.email && !opt.skipConfirm) {
-    const lead = bid.amount <= st.low_bid;
     mailer.sendQuiet({ to: bid.email, subject: loadSubject(L),
-      html: emailLayout(`Bid received: ${usd(bid.amount)}`,
-        `Thanks, ${hx(bid.contact_name || bid.company)}. We received your bid on <b>${hx(laneOf(L))}</b>${L.ref ? ' (#' + hx(L.ref) + ')' : ''}.${loadFacts(L)}
-         ${lead ? '<b style="color:#17724A">You\'re winning this load right now.</b> We\'ll email you if another carrier outbids you.'
-          : `<b style="color:#B7780A">You're not winning yet.</b> The current bid is ${usd(st.low_bid)}.${step ? ` Bid ${usd(st.low_bid - step)} or less to take the lead.` : ''}`}
-         <p>Questions? Just reply to this email.</p>`, url ? { url, label: lead ? 'View load' : 'Rebid' } : null) }, 'bid confirmation');
+      html: emailLayout(`${opt.kind === 'cover' ? 'Got it — you can cover' : 'Offer received'}: ${usd(bid.amount)}`,
+        `Thanks, ${hx(bid.contact_name || bid.company)}. We received your ${opt.kind === 'cover' ? 'answer' : 'offer'} on <b>${hx(laneOf(L))}</b>${L.ref ? ' (#' + hx(L.ref) + ')' : ''}.${loadFacts(L)}
+         <p>We'll confirm with you directly before anything is booked. Questions? Just reply to this email.</p>`, url ? { url, label: 'View load' } : null) }, 'offer confirmation');
   }
-  // tell the carrier who just lost the lead
-  if (on('em_outbid') && prevLow && prevLow.mc !== bid.mc && prevLow.email && bid.amount < prevLow.amount) {
-    mailer.sendQuiet({ to: prevLow.email, subject: loadSubject(L),
-      html: emailLayout(`You've been outbid`,
-        `Another carrier took the lead with <b>${usd(bid.amount)}</b> on <b>${hx(laneOf(L))}</b>${L.ref ? ' (#' + hx(L.ref) + ')' : ''}. Your bid was ${usd(prevLow.amount)}.
-         ${step ? `<p>To take the lead, bid <b>${usd(bid.amount - step)} or less</b>.</p>` : ''}${L.bid_deadline ? `<p style="color:#586478">Bids due ${hx(new Date(L.bid_deadline).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: TIMEZONE }))}</p>` : ''}`,
-        url ? { url, label: 'Rebid now' } : null) }, 'outbid notice');
-  }
+  // no outbid notices: carriers don't compete on the site any more
 }
 
 function emailsAfterAward(L, winner) {
@@ -566,7 +562,7 @@ async function handle(req, res) {
   // pages
   if (m === 'GET' && (p === '/' || p === '/index.html')) return serveFile(res, 'index.html');
   if (m === 'GET' && /^\/load\/[\w-]+\/?$/.test(p)) return serveFile(res, 'load.html');
-  if (m === 'GET' && (p === '/my-bids' || p === '/my-bids/')) return serveFile(res, 'mybids.html');
+  if (m === 'GET' && (p === '/my-bids' || p === '/my-bids/')) { res.writeHead(302, { Location: '/' }); return res.end(); } // bidding removed
   if (m === 'GET' && (p === '/admin' || p === '/admin/')) return serveFile(res, 'admin.html');
   if (m === 'GET' && p.startsWith('/static/')) return serveFile(res, p.slice(8).replace(/\.\./g, ''));
   if (m === 'GET' && p === '/healthz') return send(res, 200, 'ok');
@@ -618,6 +614,7 @@ async function handle(req, res) {
   }
 
   if (m === 'POST' && (mm = p.match(/^\/api\/loads\/([\w-]+)\/bids$/))) {
+    return fail(res, 410, 'Bidding on the site is off. Use Can cover / Make an offer, or email us.');
     if (limited('b:' + ip, 20, 600000)) return fail(res, 429, 'Too many bids from this connection. Please wait a few minutes.');
     const L = db.prepare('SELECT * FROM loads WHERE public_id = ?').get(mm[1]);
     const r = placeBid(L, await readBody(req, 20000), { ip, source: 'site' });
@@ -845,7 +842,7 @@ server.listen(PORT, () => {
   console.log(`Load board running on http://localhost:${PORT}  (admin: /admin)`);
   qualify.startAutoRefresh();
   startDailyScheduler();
-  OPS.startRepeatScheduler();
+  // automatic lane posting removed (Oct 2026) — every load is posted by hand from a saved lane
   INBOX.start();
   qualify.onRefresh = () => INBOX.highwayChanged();
   setTimeout(() => { try { INBOX.highwayChanged(); } catch (_) { /* first snapshot */ } }, 3000);

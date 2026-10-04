@@ -40,7 +40,7 @@ function applyLaneToForm(lane) {
   const f = $('#loadForm');
   Object.entries(lane.data || {}).forEach(([k, v]) => { if (f.elements[k]) f.elements[k].value = v; });
   $('#f_lane').value = String(lane.id); $('#f_lane_id').value = String(lane.id);
-  $('#loadMsg').innerHTML = `<div class="notice ok">Filled from saved lane <b>${esc(lane.name)}</b>. Set the dates and bids-due time, then save.</div>`;
+  $('#loadMsg').innerHTML = `<div class="notice ok">Filled from saved lane <b>${esc(lane.name)}</b>. Set the pickup and delivery dates, then save.</div>`;
   f.elements.pickup_date.focus();
 }
 
@@ -60,7 +60,6 @@ $('#f_lane').onchange = e => { const lane = savedLanes.find(l => l.id === Number
   $(`#f_${side}_fac`).onchange = e => {
     const x = facilities.find(f => f.id === Number(e.target.value)); if (!x) return;
     const f = $('#loadForm');
-    f.elements[side + '_name'].value = x.name || ''; f.elements[side + '_address'].value = x.address || '';
     f.elements[side + '_city'].value = x.city || ''; f.elements[side + '_state'].value = x.state || ''; f.elements[side + '_zip'].value = x.zip || '';
     const win = f.elements[side === 'origin' ? 'pickup_window' : 'delivery_window'];
     if (x.hours && !win.value) win.value = x.hours;
@@ -207,7 +206,7 @@ function renderTracking() {
   const count = k => trk.loads.filter(l => (l.stage || 'awarded') === k).length;
   $('#trkStats').innerHTML = STAGE_LIST.map(([k, lab]) => `<div class="stat"><b>${count(k)}</b><span>${esc(lab)}</span></div>`).join('');
   if (!list.length) { $('#trkTable').innerHTML = `<tbody><tr><td class="empty">${trk.loads.length ? 'Nothing matches.' : 'No awarded loads yet. When you award a bid, the load shows up here to track through delivery and invoicing.'}</td></tr></tbody>`; return; }
-  $('#trkTable').innerHTML = `<thead><tr><th>Load</th><th>Dates</th><th>Carrier</th><th class="num">Carrier · customer</th><th>Stage</th><th>Latest</th><th></th></tr></thead><tbody>` +
+  $('#trkTable').innerHTML = `<thead><tr><th>Load</th><th>Dates</th><th>Carrier</th><th class="num">Carrier rate</th><th>Stage</th><th>Latest</th><th></th></tr></thead><tbody>` +
     list.map(l => {
       const margin = l.customer_rate && l.carrier_rate ? l.customer_rate - l.carrier_rate : null;
       const needsRc = (l.stage || 'awarded') === 'awarded';
@@ -216,7 +215,7 @@ function renderTracking() {
         <div class="muted sm">${l.aljex_pro ? 'Pro <b class="mono">' + esc(l.aljex_pro) + '</b> · ' : ''}${l.ref ? '#' + esc(l.ref) : esc(l.public_id)}${l.customer ? ' · ' + esc(l.customer) : ''}</div></td>
       <td style="white-space:nowrap" class="sm">PU ${esc(fmtDate(l.pickup_date) || '—')}<br>DEL ${esc(fmtDate(l.delivery_date) || '—')}</td>
       <td><b>${esc(l.carrier || '')}</b><div class="muted sm mono">MC ${esc(l.carrier_mc || '')}</div><div class="sm">${esc(l.carrier_phone || '')}</div></td>
-      <td class="num">${esc(money(l.carrier_rate))}<div class="muted sm">${l.customer_rate ? esc(money(l.customer_rate)) : 'no customer rate'}</div>${margin != null ? `<div class="sm" style="color:${margin >= 0 ? 'var(--good)' : 'var(--bad)'}">${margin >= 0 ? '+' : '−'}${esc(money(Math.abs(margin)))}</div>` : ''}</td>
+      <td class="num">${esc(money(l.carrier_rate))}${l.customer_rate ? `<div class="muted sm">${esc(money(l.customer_rate))}</div>` : ''}${margin != null ? `<div class="sm" style="color:${margin >= 0 ? 'var(--good)' : 'var(--bad)'}">${margin >= 0 ? '+' : '−'}${esc(money(Math.abs(margin)))}</div>` : ''}</td>
       <td>${stageDots(l)}${needsRc ? '<div class="sm" style="color:var(--amber);font-weight:600">Send rate con in Aljex</div>' : ''}</td>
       <td class="sm" style="max-width:220px">${l.last_note ? esc(l.last_note.split(' · ')[0]).slice(0, 90) : '<span class="muted">—</span>'}${l.doc_count ? `<div class="muted">📎 ${l.doc_count} doc${l.doc_count === 1 ? '' : 's'}</div>` : ''}</td>
       <td><button class="btn sm primary" data-file="${l.id}">Open</button></td></tr>`;
@@ -242,8 +241,6 @@ async function openFile(id) {
     </div>
     <div class="grid g4">
       <div class="field"><label for="fl_pro">Aljex Pro #</label><input id="fl_pro" value="${esc(l.aljex_pro || '')}"></div>
-      <div class="field"><label for="fl_cust">Customer</label><input id="fl_cust" value="${esc(l.customer || '')}"></div>
-      <div class="field"><label for="fl_rate">Customer rate $</label><input id="fl_rate" inputmode="decimal" value="${l.customer_rate ?? ''}"></div>
       <div class="field" style="align-self:end"><button class="btn" type="button" id="fl_save">Save</button></div>
     </div>
     ${l.status === 'awarded' ? `<div><div class="muted sm" style="margin-bottom:6px">Click the next step when it's done. Click a finished step to undo it.</div><div class="stepper">${STAGE_LIST.map(([k, lab], i) => {
@@ -266,7 +263,7 @@ async function openFile(id) {
       </div>
     </div>`;
   const b = $('#fileBody');
-  $('#fl_save').onclick = async () => { await api(`/api/admin/loads/${id}/stage`, { method: 'PUT', body: { aljex_pro: $('#fl_pro').value, customer: $('#fl_cust').value, customer_rate: $('#fl_rate').value } }); toast('Saved'); openFile(id); afterFileChange(); };
+  $('#fl_save').onclick = async () => { await api(`/api/admin/loads/${id}/stage`, { method: 'PUT', body: { aljex_pro: $('#fl_pro').value } }); toast('Saved'); openFile(id); afterFileChange(); };
   $$('[data-stage]', b).forEach(x => x.onclick = async () => {
     const done = x.dataset.done === '1';
     if (done && !confirm(`Undo "${x.dataset.label}" and the steps after it?`)) return;
@@ -343,10 +340,10 @@ const _openBids = openBids;
 openBids = async function (l) { openBidsId = l.id; return _openBids(l); };
 
 // ---------- saved lanes ----------
-const LANE_KEYS = [['origin_name', 'Shipper name'], ['origin_address', 'Shipper address'], ['origin_city', 'Origin city'], ['origin_state', 'Origin state'], ['origin_zip', 'Origin ZIP'],
-  ['dest_name', 'Receiver name'], ['dest_address', 'Receiver address'], ['dest_city', 'Dest city'], ['dest_state', 'Dest state'], ['dest_zip', 'Dest ZIP'],
-  ['pickup_window', 'Pickup window'], ['delivery_window', 'Delivery window'], ['equipment', 'Equipment'], ['temp', 'Temp'], ['weight', 'Weight (lb)'], ['pallets', 'Pallets'],
-  ['commodity', 'Commodity'], ['stops', 'Extra stops'], ['miles', 'Miles'], ['customer', 'Customer'], ['customer_rate', 'Customer rate $'], ['target_rate', 'Target carrier rate $'], ['post_rate', 'Rate to post $ (shown to carriers)'],
+const LANE_KEYS = [['origin_city', 'Origin city'], ['origin_state', 'Origin state'], ['origin_zip', 'Origin ZIP'],
+  ['dest_city', 'Dest city'], ['dest_state', 'Dest state'], ['dest_zip', 'Dest ZIP'],
+  ['pickup_window', 'Pickup window / appt'], ['delivery_window', 'Delivery window / appt'], ['equipment', 'Equipment'], ['temp', 'Temp'], ['weight', 'Weight (lb)'], ['pallets', 'Pallets'],
+  ['commodity', 'Commodity'], ['stops', 'Extra stops'], ['miles', 'Miles'], ['post_rate', 'Rate to post $ (shown to carriers)'],
   ['requirements', 'Requirements (shown to carriers)'], ['notes', 'Notes (shown to carriers)']];
 let editingLane = null;
 async function loadLanesTab() { await refreshRefs(); renderLanes(); renderFacs(); }
@@ -358,13 +355,12 @@ function repeatText(l) {
 }
 function renderLanes() {
   if (!savedLanes.length) { $('#laneTable').innerHTML = '<tbody><tr><td class="empty">No saved lanes yet. Fill in a load, then click <b>Save as lane</b> — or click <b>+ New lane</b>.</td></tr></tbody>'; return; }
-  $('#laneTable').innerHTML = `<thead><tr><th>Lane</th><th>Details</th><th>Posting</th><th>Last posted</th><th></th></tr></thead><tbody>` +
+  $('#laneTable').innerHTML = `<thead><tr><th>Lane</th><th>Details</th><th>Last posted</th><th></th></tr></thead><tbody>` +
     savedLanes.map(l => { const d = l.data || {}; return `<tr>
       <td><b>${esc(l.name)}</b><div class="lane" style="font-size:14px">${esc(place(d.origin_city, d.origin_state, d.origin_zip))} <span class="arrow">→</span> ${esc(place(d.dest_city, d.dest_state, d.dest_zip))}</div></td>
-      <td class="sm">${esc([d.equipment, d.commodity, d.weight ? Number(d.weight).toLocaleString() + ' lb' : ''].filter(Boolean).join(' · '))}<div class="muted">${esc([d.customer, d.customer_rate ? money(d.customer_rate) : ''].filter(Boolean).join(' · '))}</div></td>
-      <td class="sm">${repeatText(l)}</td>
+      <td class="sm">${esc([d.equipment, d.commodity, d.weight ? Number(d.weight).toLocaleString() + ' lb' : ''].filter(Boolean).join(' · '))}<div class="muted">${d.post_rate ? 'Rate ' + esc(money(d.post_rate)) : ''}${d.pickup_window ? ' · PU ' + esc(d.pickup_window) : ''}</div></td>
       <td class="sm">${l.last_posted ? esc(fmtDate(l.last_posted)) : '—'}</td>
-      <td><div class="actions" style="flex-wrap:nowrap;gap:6px"><button class="btn sm primary" data-lpost="${l.id}" title="Post a load now with the lane's schedule settings">Post now</button><button class="btn sm" data-luse="${l.id}" title="Open a new load pre-filled from this lane">Use</button><button class="btn sm" data-ledit="${l.id}">Edit</button></div></td></tr>`; }).join('') + '</tbody>';
+      <td><div class="actions" style="flex-wrap:nowrap;gap:6px"><button class="btn sm primary" data-luse="${l.id}" title="Open a new load pre-filled from this lane">Post a load</button><button class="btn sm" data-ledit="${l.id}">Edit</button></div></td></tr>`; }).join('') + '</tbody>';
 }
 $('#laneTable').onclick = async e => {
   const b = e.target.closest('button'); if (!b) return;
@@ -384,25 +380,18 @@ function openLane(l) {
   $('#ln_name').value = l ? l.name : '';
   const d = (l && l.data) || {};
   $('#laneFields').innerHTML = LANE_KEYS.map(([k, lab]) => `<div class="field" style="${/address|requirements|notes|name/.test(k) ? 'grid-column:span 2' : ''}"><label for="lnf_${k}">${esc(lab)}</label><input id="lnf_${k}" value="${esc(d[k] ?? '')}"></div>`).join('');
-  $('#ln_repeat').checked = !!(l && l.repeat_on);
-  const days = String(l ? l.repeat_days : '1,2,3,4,5').split(',').map(Number);
-  $('#ln_days').innerHTML = DAYS.map((n, i) => `<label class="daychip"><input type="checkbox" value="${i}" ${days.includes(i) ? 'checked' : ''}> ${n}</label>`).join('');
-  $('#ln_time').value = l ? l.repeat_time : '07:00';
-  $('#ln_pu').value = l ? l.repeat_pickup_days : 1; $('#ln_tr').value = l ? (l.repeat_transit_days ?? '') : 1; $('#ln_bh').value = l ? l.repeat_bid_hours : 24;
   $('#laneDel').hidden = !l;
   $('#laneDlg').showModal();
 }
 $('#laneForm').onsubmit = async e => {
   e.preventDefault();
   const data = {}; LANE_KEYS.forEach(([k]) => { const v = $('#lnf_' + k).value.trim(); if (v) data[k] = k.endsWith('_state') ? v.toUpperCase() : v; });
-  const body = { name: $('#ln_name').value, data, repeat_on: $('#ln_repeat').checked, repeat_days: $$('#ln_days input:checked').map(x => x.value).join(','),
-    repeat_time: $('#ln_time').value, repeat_pickup_days: $('#ln_pu').value, repeat_transit_days: $('#ln_tr').value.trim(), repeat_bid_hours: $('#ln_bh').value };
-  if (body.repeat_on && !body.repeat_days) { toast('Pick at least one day'); return; }
+  const body = { name: $('#ln_name').value, data, repeat_on: false };
   const wasNew = !editingLane;
   const savedLane = await api(editingLane ? `/api/admin/lanes/${editingLane.id}` : '/api/admin/lanes', { method: editingLane ? 'PUT' : 'POST', body });
   $('#laneDlg').close(); await refreshRefs(); renderLanes();
   if (wasNew) { toast('Lane saved — now add the carriers who run it'); openLane(savedLane); }
-  else toast(body.repeat_on ? 'Lane saved — it will post itself on schedule' : 'Lane saved');
+  else toast('Lane saved');
 };
 $('#laneDel').onclick = async () => { if (!confirm(`Delete lane "${editingLane.name}"? Loads already posted from it are kept.`)) return; await api(`/api/admin/lanes/${editingLane.id}`, { method: 'DELETE' }); $('#laneDlg').close(); await refreshRefs(); renderLanes(); };
 
@@ -513,7 +502,7 @@ $('#bookForm').onsubmit = async e => {
 
 // "Rate to post" starts from the target rate: typing a target fills it in until you change it yourself
 (() => {
-  const f = $('#loadForm'); if (!f) return;
+  const f = $('#loadForm'); if (!f || !f.elements.target_rate) return; // target rate removed from the form
   let last = '';
   f.elements.target_rate.addEventListener('focus', () => { last = f.elements.target_rate.value; });
   f.elements.target_rate.addEventListener('input', () => {

@@ -50,7 +50,7 @@
           <select id="laneQuick" style="width:auto;max-width:230px" aria-label="Start from a saved lane"><option value="">From saved lane…</option></select>
           <button class="btn" type="button" id="importBtn">Import</button>
           <button class="btn" type="button" id="boardLink">Copy board link</button>
-          <a class="btn" href="/api/admin/bids.csv">Export all bids</a>
+          <a class="btn" href="/api/admin/bids.csv">Export all offers</a>
         </div>
         <div class="right">
           <input id="search" type="search" placeholder="Search loads" style="width:200px" aria-label="Search loads">
@@ -63,9 +63,8 @@
       <div class="stat-row" id="stats"></div>
       <div class="bulkbar" id="bulkbar" hidden>
         <b id="bulkCount">0 selected</b>
-        <button class="btn sm" type="button" data-bulk="close">Close bidding</button>
+        <button class="btn sm" type="button" data-bulk="close">Close (off the board)</button>
         <button class="btn sm" type="button" data-bulk="draft">Move to draft</button>
-        <label class="bulkdl">Bids due <input type="datetime-local" id="bulkDeadline"></label><button class="btn sm" type="button" data-bulk="deadline">Set</button>
         <button class="btn sm danger" type="button" data-bulk="delete">Delete</button>
         <button class="linkbtn" type="button" id="bulkClear">Clear</button>
       </div>
@@ -326,10 +325,6 @@
         <div class="grid g2 facrow">
           <div class="field"><label for="f_origin_fac">Shipper <span class="hint">(address book)</span></label><select id="f_origin_fac" data-side="origin"><option value="">—</option></select></div>
           <div class="field"><label for="f_dest_fac">Receiver <span class="hint">(address book)</span></label><select id="f_dest_fac" data-side="dest"><option value="">—</option></select></div>
-          <div class="field"><label for="f_origin_name">Shipper name <span class="hint">(private)</span></label><input id="f_origin_name" name="origin_name"></div>
-          <div class="field"><label for="f_dest_name">Receiver name <span class="hint">(private)</span></label><input id="f_dest_name" name="dest_name"></div>
-          <div class="field"><label for="f_origin_address">Street address</label><input id="f_origin_address" name="origin_address"><button class="linkbtn sm" type="button" data-savefac="origin">Save shipper to address book</button></div>
-          <div class="field"><label for="f_dest_address">Street address</label><input id="f_dest_address" name="dest_address"><button class="linkbtn sm" type="button" data-savefac="dest">Save receiver to address book</button></div>
         </div>
         <div class="grid g4">
           <div class="field" style="grid-column:span 2"><label for="f_origin_city">Origin city</label><input id="f_origin_city" name="origin_city" required></div>
@@ -343,14 +338,13 @@
       <fieldset><legend>Schedule</legend>
         <div class="grid g4">
           <div class="field"><label for="f_pickup_date">Pickup date</label><input id="f_pickup_date" name="pickup_date" type="date"></div>
-          <div class="field"><label for="f_pickup_window">Pickup window</label><input id="f_pickup_window" name="pickup_window" placeholder="08:00–14:00"></div>
+          <div class="field"><label for="f_pickup_window">Pickup window / appt</label><input id="f_pickup_window" name="pickup_window" placeholder="0800–1400 FCFS or Appt 0700"></div>
           <div class="field"><label for="f_delivery_date">Delivery date</label><input id="f_delivery_date" name="delivery_date" type="date"></div>
-          <div class="field"><label for="f_delivery_window">Delivery window</label><input id="f_delivery_window" name="delivery_window" placeholder="Appt 07:00"></div>
+          <div class="field"><label for="f_delivery_window">Delivery window / appt</label><input id="f_delivery_window" name="delivery_window" placeholder="Appt 0700 or 0600–1400"></div>
         </div>
         <div class="grid g2">
-          <div class="field"><label for="f_bid_deadline">Bids due <span class="hint">(bidding closes automatically)</span></label><input id="f_bid_deadline" name="bid_deadline" type="datetime-local"></div>
           <div class="field"><label for="f_status">Status</label>
-            <select id="f_status" name="status"><option value="open">Open — visible, taking bids</option><option value="draft">Draft — hidden</option><option value="closed">Closed — visible, no bids</option></select></div>
+            <select id="f_status" name="status"><option value="open">Open — on the board until you close it</option><option value="draft">Draft — hidden</option><option value="closed">Closed — off the board</option></select></div>
         </div>
       </fieldset>
       <fieldset><legend>Equipment &amp; freight</legend>
@@ -367,14 +361,12 @@
         <div class="field"><label for="f_requirements">Requirements <span class="hint">(shown to carriers)</span></label><textarea id="f_requirements" name="requirements" rows="2" placeholder="Load locks, no double brokering, tracking required…"></textarea></div>
         <div class="field"><label for="f_notes">Notes <span class="hint">(shown to carriers)</span></label><textarea id="f_notes" name="notes" rows="2"></textarea></div>
       </fieldset>
-      <fieldset><legend>Internal <span class="hint" style="text-transform:none;letter-spacing:0;font-family:var(--body);font-weight:500">(never shown to carriers)</span></legend>
+      <fieldset><legend>Rate &amp; reference</legend>
         <div class="grid g4">
-          <div class="field"><label for="f_ref">Load / order #</label><input id="f_ref" name="ref"></div>
-          <div class="field"><label for="f_aljex_pro">Aljex Pro #</label><input id="f_aljex_pro" name="aljex_pro"></div>
-          <div class="field"><label for="f_customer">Customer</label><input id="f_customer" name="customer" list="custList"><datalist id="custList"></datalist></div>
-          <div class="field"><label for="f_customer_rate">Customer rate $</label><input id="f_customer_rate" name="customer_rate" inputmode="decimal"></div>
-          <div class="field"><label for="f_target_rate">Target carrier rate $</label><input id="f_target_rate" name="target_rate" inputmode="decimal"></div>
-          <div class="field"><label for="f_post_rate">Rate to post $ <span class="hint" style="color:var(--good)">(shown to carriers in emails)</span></label><input id="f_post_rate" name="post_rate" inputmode="decimal" placeholder="blank = ask for offers"></div>
+          <div class="field"><label for="f_ref">Load / order # <span class="hint">(private)</span></label><input id="f_ref" name="ref"></div>
+          <div class="field"><label for="f_aljex_pro">Aljex Pro # <span class="hint">(private)</span></label><input id="f_aljex_pro" name="aljex_pro"></div>
+          <datalist id="custList"></datalist>
+          <div class="field"><label for="f_post_rate">Rate to post $ <span class="hint" style="color:var(--good)">(shown to carriers)</span></label><input id="f_post_rate" name="post_rate" inputmode="decimal" placeholder="blank = ask for offers"></div>
           <div class="field" style="grid-column:span 2"><label for="f_miles">Miles <span class="hint">(blank = calculate from route)</span></label><input id="f_miles" name="miles" inputmode="numeric"></div>
         </div>
       </fieldset>
@@ -400,7 +392,7 @@
   <div class="dlg-head"><h2>Import loads</h2><button class="x" type="button" data-close aria-label="Close">×</button></div>
   <div class="dlg-body">
     <fieldset><legend>Import loads from a file</legend>
-    <p class="help" style="margin:0">Upload a .csv or .xlsx with one load per row. Columns are matched by header name (e.g. <span class="mono">origin_city, origin_state, dest_city, dest_state, pickup_date, equipment, weight, bid_deadline, target_rate</span>). Rows without an origin and destination are skipped.</p>
+    <p class="help" style="margin:0">Upload a .csv or .xlsx with one load per row. Columns are matched by header name (e.g. <span class="mono">origin_city, origin_state, dest_city, dest_state, pickup_date, equipment, weight, post_rate</span>). Rows without an origin and destination are skipped.</p>
     <input type="file" id="importFile" accept=".csv,.xlsx">
     <div><a class="btn sm" href="/api/admin/template.csv">Download column template</a></div>
     <div id="importMsg"></div>
@@ -566,18 +558,6 @@
         </details>
         <div id="lnNew" class="notice" hidden>Save the lane first, then you can add its carriers.</div>
       </fieldset>
-      <fieldset><legend>Post automatically</legend>
-        <label style="font-weight:500"><input type="checkbox" id="ln_repeat" style="width:auto"> Post this lane on a schedule</label>
-        <div class="grid g2">
-          <div class="field"><label>Days</label><div class="actions" id="ln_days"></div></div>
-          <div class="field"><label for="ln_time">Post at (Denver)</label><input id="ln_time" type="time" value="07:00"></div>
-        </div>
-        <div class="grid g3">
-          <div class="field"><label for="ln_pu">Pickup date = post day +</label><input id="ln_pu" inputmode="numeric" value="1"><span class="hint">days (0 = same day)</span></div>
-          <div class="field"><label for="ln_tr">Delivery = pickup +</label><input id="ln_tr" inputmode="numeric" value="1"><span class="hint">days (blank = none)</span></div>
-          <div class="field"><label for="ln_bh">Bids due after posting</label><input id="ln_bh" inputmode="numeric" value="24"><span class="hint">hours</span></div>
-        </div>
-      </fieldset>
     </div>
     <div class="dlg-foot"><button class="btn danger" type="button" id="laneDel" style="margin-right:auto">Delete lane</button><button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="submit">Save lane</button></div>
   </form>
@@ -609,7 +589,7 @@
 
 let loads = [], settings = {};
 const selected = new Set();
-const FIELDS = ['ref','status','origin_name','origin_address','origin_city','origin_state','origin_zip','dest_name','dest_address','dest_city','dest_state','dest_zip','pickup_date','pickup_window','delivery_date','delivery_window','equipment','temp','weight','pallets','commodity','stops','requirements','notes','target_rate','bid_deadline','miles','customer','customer_rate','aljex_pro','post_rate','lane_id'];
+const FIELDS = ['ref','status','origin_city','origin_state','origin_zip','dest_city','dest_state','dest_zip','pickup_date','pickup_window','delivery_date','delivery_window','equipment','temp','weight','pallets','commodity','stops','requirements','notes','miles','aljex_pro','post_rate','lane_id'];
 const boardUrl = () => location.origin + '/';
 const loadUrl = l => location.origin + '/load/' + l.public_id;
 
@@ -659,21 +639,20 @@ function renderLoads() {
     (!q || [l.ref, l.public_id, l.origin_city, l.origin_state, l.dest_city, l.dest_state, l.equipment, l.commodity].join(' ').toLowerCase().includes(q)));
   const open = loads.filter(l => l.status === 'open');
   $('#stats').innerHTML = `
-    <div class="stat"><b>${open.filter(l => l.bidding_open).length}</b><span>Taking bids</span></div>
-    <div class="stat"><b>${open.filter(l => !l.bid_count).length}</b><span>Open, no bids</span></div>
-    <div class="stat"><b>${loads.reduce((s, l) => s + (l.status === 'open' ? l.bid_count : 0), 0)}</b><span>Bids on open loads</span></div>
+    <div class="stat"><b>${open.length}</b><span>On the board</span></div>
+    <div class="stat"><b>${open.filter(l => !l.bid_count).length}</b><span>No offers yet</span></div>
+    <div class="stat"><b>${loads.reduce((s, l) => s + (l.status === 'open' ? l.bid_count : 0), 0)}</b><span>Offers on open loads</span></div>
     <div class="stat"><b>${loads.filter(l => l.status === 'awarded').length}</b><span>Awarded <button class="linkbtn" type="button" data-gotrk>see Awarded tab →</button></span></div>`;
   const gt = $('[data-gotrk]'); if (gt) gt.onclick = () => $('.tabs [data-tab=tracking]').click();
   const flWait = open.filter(l => l.first_look_until && !l.first_look_released && (l.first_look_until.startsWith('9999') || Date.parse(l.first_look_until) < Date.now()));
   const fn = $('#flNotice'); if (fn) { fn.hidden = !flWait.length; fn.innerHTML = flWait.length ? `<b>★ ${flWait.length} load${flWait.length === 1 ? '' : 's'} waiting on you for first look:</b> ` + flWait.map(l => `<button class="linkbtn" type="button" data-flopen="${l.id}">${esc(place(l.origin_city, l.origin_state))} → ${esc(place(l.dest_city, l.dest_state))}${l.first_look_until.startsWith('9999') ? ' (not sent yet)' : ' (ended)'}</button>`).join(' · ') : '';
     $$('[data-flopen]').forEach(b => b.onclick = () => openNotify(Number(b.dataset.flopen))); }
   if (!list.length) { $('#loadTable').innerHTML = `<tbody><tr><td class="empty">${loads.length ? (sf === 'active' ? 'No active loads. Awarded loads are on the <b>Awarded</b> tab; closed ones are under the status filter.' : 'No loads match.') : 'No loads yet. Click <b>+ New load</b> or <b>Import loads</b> to post your first one.'}</td></tr></tbody>`; return; }
-  $('#loadTable').innerHTML = `<thead><tr><th style="width:30px"><input type="checkbox" id="selAll" aria-label="Select all shown"></th><th>Lane</th><th>Pickup</th><th class="num" title="The rate carriers see (Rate to post) · estimated break-even · DAT market">Carrier rate</th><th class="num">Low bid</th><th>Due</th><th></th></tr></thead>
+  $('#loadTable').innerHTML = `<thead><tr><th style="width:30px"><input type="checkbox" id="selAll" aria-label="Select all shown"></th><th>Lane</th><th>Pickup</th><th class="num" title="The rate carriers see (Rate to post) · estimated break-even · DAT market">Carrier rate</th><th class="num">Offers</th><th></th></tr></thead>
   <tbody>${list.map(l => {
     const st = l.status === 'open' && !l.bidding_open ? 'closed' : l.status;
     const stLabel = l.status === 'open' && !l.bidding_open ? 'Expired' : l.status;
     const geoNote = l.geo_status === 'failed' ? ' <span class="chip bad" title="' + esc(l.geo_error || 'Address not found — check city/state/ZIP') + '">no map</span>' : l.geo_status === 'pending' ? ' <span class="chip">mapping…</span>' : '';
-    const overTarget = l.target_rate && l.low_bid && l.low_bid > l.target_rate;
     const HELD = '9999-12-31T00:00:00.000Z';
     const flState = l.status !== 'open' || !l.first_look_until || l.first_look_released ? '' : l.first_look_until === HELD ? 'held' : Date.parse(l.first_look_until) < Date.now() ? 'ended' : 'active';
     const src = flState === 'held' ? ' <button class="chip fl" data-act="fl" data-id="' + l.id + '" title="Off the board until you send it">★ Held for first look — send</button>'
@@ -685,14 +664,11 @@ function renderLoads() {
         <div class="meta"><span class="status ${st}">${esc(l.status === 'awarded' && l.stage && l.stage !== 'awarded' ? stageLabel(l.stage) : stLabel)}</span> <span class="mono">${l.ref ? '#' + esc(l.ref) : esc(l.public_id)}</span>${src}${l.customer ? ' · ' + esc(l.customer) : ''}${geoNote}</div></td>
       <td style="white-space:nowrap">${esc(fmtDate(l.pickup_date))}<div class="muted sm">${esc(l.equipment || '')}</div></td>
       <td class="num">${l.post_rate ? `<b style="color:var(--good)">${esc(money(l.post_rate))}</b>` : '<span class="muted sm" title="No Rate to post — carriers are asked for offers">offers</span>'}${l.cost && l.cost.breakeven ? `<div class="sm">BE ${esc(money(l.cost.breakeven))}</div><div class="muted sm">mkt ${esc(money(l.cost.market))}</div>` : ''}</td>
-      <td class="num">${l.bid_count ? `<b style="${overTarget ? 'color:var(--bad)' : ''}">${esc(money(l.low_bid))}</b>` : '—'}
-        <div class="muted sm">${l.bid_count} bid${l.bid_count === 1 ? '' : 's'}${l.bid_count ? ` · <span style="color:${l.pass_count ? 'var(--good)' : 'inherit'}">${l.pass_count} pass</span>` : ''}</div>
-        ${l.target_rate ? `<div class="muted sm">target ${esc(money(l.target_rate))}</div>` : ''}${l.bid_count ? costChip(l.low_tag, true) : ''}</td>
-      <td class="muted sm" style="white-space:nowrap">${l.bid_deadline ? esc(fmtDateTime(l.bid_deadline)).replace(', ', ',<br>') : '—'}</td>
+      <td class="num">${l.bid_count ? `<b>${esc(money(l.low_bid))}</b><div class="muted sm">${l.bid_count} offer${l.bid_count === 1 ? '' : 's'} · <span style="color:${l.pass_count ? 'var(--good)' : 'inherit'}">${l.pass_count} on Highway</span></div>` : '<span class="muted sm">none yet</span>'}</td>
       <td><div class="actions" style="flex-wrap:nowrap;gap:6px">
         ${l.status === 'awarded' ? `<button class="btn sm primary" data-act="track" data-id="${l.id}" title="Stages, notes, documents">Track</button>
-        <button class="btn sm" data-act="bids" data-id="${l.id}">Bids${l.bid_count ? ' (' + l.bid_count + ')' : ''}</button>`
-        : `<button class="btn sm primary" data-act="bids" data-id="${l.id}">Bids${l.bid_count ? ' (' + l.bid_count + ')' : ''}</button>
+        <button class="btn sm" data-act="bids" data-id="${l.id}">Offers${l.bid_count ? ' (' + l.bid_count + ')' : ''}</button>`
+        : `<button class="btn sm primary" data-act="bids" data-id="${l.id}">Offers${l.bid_count ? ' (' + l.bid_count + ')' : ''}</button>
         <button class="btn sm" data-act="link" data-id="${l.id}" title="Copy carrier link">Link</button>`}
         <button class="btn sm" data-act="edit" data-id="${l.id}">Edit</button>
       </div></td></tr>`;
@@ -718,7 +694,6 @@ $('#loadTable').onclick = async e => {
     if (act === 'close') { await api(`/api/admin/loads/${l.id}`, { method: 'PUT', body: { status: 'closed' } }); toast('Bidding closed'); refreshLoads(); }
     if (act === 'open') {
       const body = { status: 'open' };
-      if (l.bid_deadline && Date.parse(l.bid_deadline) < Date.now()) { toast('Bid deadline has passed — set a new one'); openLoad({ ...l, status: 'open' }); return; }
       await api(`/api/admin/loads/${l.id}`, { method: 'PUT', body }); toast('Load posted'); refreshLoads();
     }
     if (act === 'del') {
@@ -742,7 +717,7 @@ function openLoad(l) {
   const f = $('#loadForm');
   const v = l || { status: 'open', contact_name: settings.default_contact_name, contact_phone: settings.default_contact_phone, contact_email: settings.default_contact_email };
   FIELDS.forEach(k => { const el = f.elements[k]; if (!el) return;
-    el.value = k === 'bid_deadline' ? toLocalInput(v[k]) : (k === 'miles' && editing && !editing.miles_manual ? '' : (v[k] ?? '')); });
+    el.value = (k === 'miles' && editing && !editing.miles_manual ? '' : (v[k] ?? '')); });
   if (editing && editing.miles && !editing.miles_manual) f.elements.miles.placeholder = `${Math.round(editing.miles)} (calculated)`; else f.elements.miles.placeholder = '';
   if (v.status === 'awarded') { f.elements.status.value = 'closed'; }
   $('#loadMsg').innerHTML = v.status === 'awarded' ? '<div class="notice warn">This load is awarded. Use "Reopen" in the bids window to take bids again.</div>' : '';
@@ -769,7 +744,6 @@ async function saveLoad(copyAfter) {
   if (!f.reportValidity()) return;
   const body = {};
   FIELDS.forEach(k => { const el = f.elements[k]; if (!el || el.disabled) return; body[k] = el.value; });
-  body.bid_deadline = body.bid_deadline ? new Date(body.bid_deadline).toISOString() : '';
   try {
     const saved = editing ? await api(`/api/admin/loads/${editing.id}`, { method: 'PUT', body }) : await api('/api/admin/loads', { method: 'POST', body });
     $('#loadDlg').close();
@@ -857,7 +831,6 @@ function wire(l) {
   };
   const c = $('#copyL'); if (c) c.onclick = () => copyText(loadUrl(l));
   const r = $('#reopen'); if (r) r.onclick = async () => {
-    if (l.bid_deadline && Date.parse(l.bid_deadline) < Date.now()) { $('#bidsDlg').close(); toast('Set a new bid deadline first'); openLoad({ ...l, status: 'open' }); return; }
     await api(`/api/admin/loads/${l.id}/reopen`, { method: 'POST' }); toast('Reopened for bids'); renderBids(l.id); refreshLoads();
   };
   $$('[data-award]').forEach(b => b.onclick = async () => {

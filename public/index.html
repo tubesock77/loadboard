@@ -15,7 +15,7 @@
       <span class="brand-logo"><img src="/static/logo.png" alt="Brock Transportation LLC" width="138" height="46"></span>
       <span><span class="brand-name" data-company>Load Board</span><div class="brand-sub" data-tagline></div></span>
     </a>
-    <nav><a href="/my-bids">My bids</a></nav>
+    <nav></nav>
   </div>
 </header>
 
@@ -35,7 +35,7 @@
 
   <section class="panel alertbox" id="alertbox">
     <h2>Get loads on your lanes by email</h2>
-    <p class="muted" style="margin:0 0 12px">Tell us where you run. We'll email you when a load posts on your lanes — with the rate, details and a one-reply way to bid or book.</p>
+    <p class="muted" style="margin:0 0 12px">Tell us where you run. We'll email you when a load posts on your lanes — with the rate, details and a one-tap way to answer.</p>
     <form id="alertForm" class="stack" novalidate>
       <div class="grid g3">
         <div class="field"><label for="al_email">Email<span class="req" aria-hidden="true">*</span></label><input id="al_email" type="email" autocomplete="email" required></div>
@@ -68,13 +68,12 @@ function render() {
     if (!q) return true;
     return [l.ref, l.public_id, l.origin_city, l.origin_state, l.dest_city, l.dest_state, l.commodity, l.equipment].join(' ').toLowerCase().includes(q);
   });
-  $('#count').textContent = `${list.length} load${list.length === 1 ? '' : 's'} open for bids` + (list.length !== all.length ? ` (of ${all.length})` : '');
+  $('#count').textContent = `${list.length} load${list.length === 1 ? '' : 's'} available` + (list.length !== all.length ? ` (of ${all.length})` : '');
   if (!list.length) {
     $('#loads').innerHTML = `<div class="panel empty">${all.length ? 'No loads match those filters.' : 'No loads are posted right now. Check back soon.'}</div>`;
     return;
   }
   $('#loads').innerHTML = list.map(l => {
-    const tl = timeLeft(l.bid_deadline);
     return `<a class="panel load-row" href="/load/${esc(l.public_id)}">
       <div>
         <div class="lane">${esc(place(l.origin_city, l.origin_state, l.origin_zip))} <span class="arrow">→</span> ${esc(place(l.dest_city, l.dest_state, l.dest_zip))}
@@ -85,15 +84,13 @@ function render() {
           ${l.delivery_date ? `<span class="chip">Deliver ${esc(fmtDate(l.delivery_date))}</span>` : ''}
           ${l.weight ? `<span class="chip">${esc(weight(l.weight))}</span>` : ''}
           ${l.stops ? `<span class="chip">${esc(l.stops)} extra stop${l.stops > 1 ? 's' : ''}</span>` : ''}
-          ${tl ? `<span class="chip ${tl.urgent ? 'warn' : ''}">${esc(tl.text)}</span>` : ''}
           ${l.ref ? `<span class="chip mono">#${esc(l.ref)}</span>` : ''}
         </div>
       </div>
       <div class="side">
-        <div><div class="lowbid-label">${l.bid_count ? 'Current Bid' : 'No bids yet'}</div>
-        <div class="lowbid">${l.bid_count ? esc(money(l.low_bid)) : '—'}</div></div>
-        ${l.book_rate ? `<div><div class="lowbid-label" style="color:var(--good)">Book now</div><div class="lowbid" style="color:var(--good)">${esc(money(l.book_rate))}</div></div>` : ''}
-        <span class="btn primary sm">${l.book_rate ? 'Book or bid' : 'View &amp; bid'}</span>
+        <div><div class="lowbid-label">Rate</div>
+        <div class="lowbid" style="color:var(--good)">${l.post_rate ? esc(money(l.post_rate)) : 'Make an offer'}</div></div>
+        <span class="btn primary sm">View load</span>
       </div>
     </a>`;
   }).join('');

@@ -16,7 +16,7 @@
       <span class="brand-logo"><img src="/static/logo.png" alt="Brock Transportation LLC" width="138" height="46"></span>
       <span><span class="brand-name" data-company>Load Board</span><div class="brand-sub" data-tagline></div></span>
     </a>
-    <nav><a href="/my-bids">My bids</a><a href="/">All loads</a></nav>
+    <nav><a href="/">All loads</a></nav>
   </div>
 </header>
 
@@ -43,10 +43,8 @@ function specs(l) {
 
 function renderPage() {
   const l = L0;
-  const tl = timeLeft(l.bid_deadline);
   const statusChip = l.status === 'awarded' ? '<span class="chip bad">Covered</span>'
-    : !l.bidding_open ? '<span class="chip warn">Bidding closed</span>'
-    : tl ? `<span class="chip ${tl.urgent ? 'warn' : 'eq'}">${esc(tl.text)}</span>` : '<span class="chip eq">Open for bids</span>';
+    : !l.bidding_open ? '<span class="chip warn">No longer available</span>' : '<span class="chip eq">Available</span>';
   document.title = `${place(l.origin_city, l.origin_state)} → ${place(l.dest_city, l.dest_state)} · ${cfg.company || 'Load'}`;
   $('#root').innerHTML = `
   <div class="detail-head">
@@ -112,108 +110,17 @@ function drawMap(l) {
 
 function renderBidbox() {
   const l = L0, box = $('#bidbox');
-  const mine = store.get('bid:' + l.public_id);
-  const top = `<div class="bidbox-top">
-      <div><div class="lowbid-label">Current Bid</div><div class="big">${l.bid_count ? esc(money(l.low_bid)) : '—'}</div>
-        <div class="rpm">${l.bid_count ? esc(perMile(l.low_bid, l.miles)) : 'Be the first to bid'}</div></div>
-      <div><div class="lowbid-label">Bids</div><div class="big">${l.bid_count}</div>
-        ${mine ? `<div class="rpm">Yours: ${esc(money(mine.amount))}</div>` : ''}</div>
-    </div>`;
-
-  if (!l.bidding_open) {
-    box.innerHTML = top + `<div class="bidbox-body"><h2>${myState && myState.state === 'won' ? 'You won this load' : l.status === 'awarded' ? 'This load is covered' : 'Bidding is closed'}</h2>
-      ${myState ? statusLine(myState) : ''}
-      <p class="muted" style="margin:0">Thanks for your interest. <a href="/">See other available loads</a>.</p></div>`;
-    return;
-  }
-
-  const c = store.get('carrier') || {};
-  const step = Number(l.bid_step || 0);
-  const iAmLow = myState ? myState.state === 'leading' : (mine && l.bid_count && Number(mine.amount) <= Number(l.low_bid));
-  const stepHint = !step ? ''
-    : !l.bid_count ? `<div class="hint" style="margin-top:4px">Bids go in ${esc(money(step))} steps, like ${esc(money(1000))} or ${esc(money(1000 + step))}.</div>`
-    : iAmLow ? `<div class="hint" style="margin-top:4px">You're winning. To lower your bid, bid <b>${esc(money(l.low_bid - step))} or less</b> (${esc(money(step))} steps).</div>`
-    : `<div class="hint" style="margin-top:4px;color:var(--ink)">To take the lead, bid <b>${esc(money(l.low_bid - step))} or less</b> (${esc(money(step))} steps).</div>`;
-  box.innerHTML = top + `<div class="bidbox-body">
-    ${l.book_rate ? `<div class="booknow"><div><div class="lowbid-label">Book it now</div><div class="big">${esc(money(l.book_rate))}</div><div class="rpm">${esc(perMile(l.book_rate, l.miles))} · all-in, no bidding</div></div>
-      <div class="hint">Fill in your info below and tap <b>Book it now</b>. We confirm and send the rate con.</div></div>` : ''}
-    <h2>${l.book_rate ? 'Or bid your rate' : 'Bid on this load'}</h2>
-    ${myState ? statusLine(myState) : mine ? `<div class="notice warn">You bid ${esc(money(mine.amount))} on ${esc(fmtDateTime(mine.at))}. Submitting again replaces your bid.</div>` : ''}
-    ${(c.mc || c.company || c.contact_name) ? `<div class="notyou">Filled in for <b>${esc(c.company || c.contact_name || 'MC ' + c.mc)}</b> <button type="button" class="linkbtn" id="notYou">Not you? Clear</button></div>` : ''}
-    <form id="bform" class="stack" novalidate>
-      <div class="field"><label for="amount">All-in rate<span class="req" aria-hidden="true">*</span> <span class="hint">(linehaul + fuel, USD)</span></label>
-        <div class="money"><input id="amount" inputmode="decimal" autocomplete="off" placeholder="0" value="${myState && myState.state === 'outbid' && myState.next_max ? esc(myState.next_max) : mine ? esc(mine.amount) : ''}" required></div>
-        <div class="rpm" id="rpm" style="margin-top:4px"></div>
-        ${stepHint}</div>
-      <div class="field" style="max-width:220px"><label for="mc">MC number<span class="req" aria-hidden="true">*</span></label><input id="mc" inputmode="numeric" autocomplete="off" placeholder="e.g. 123456" value="${esc(c.mc || '')}" required></div>
-      <div class="field"><label for="company">Company<span class="req" aria-hidden="true">*</span></label><input id="company" autocomplete="organization" value="${esc(c.company || '')}" required></div>
-      <div class="grid g2">
-        <div class="field"><label for="cname">Your name<span class="req" aria-hidden="true">*</span></label><input id="cname" autocomplete="name" value="${esc(c.contact_name || '')}" required></div>
-        <div class="field"><label for="phone">Phone<span class="req" aria-hidden="true">*</span> <span class="hint">(or email)</span></label><input id="phone" type="tel" autocomplete="tel" value="${esc(c.phone || '')}"></div>
-      </div>
-      <div class="field"><label for="email">Email<span class="req" aria-hidden="true">*</span> <span class="hint">(or phone)</span></label><input id="email" type="email" autocomplete="email" value="${esc(c.email || '')}"></div>
-      <div class="field"><label for="bnotes">Notes <span class="hint">(optional — truck availability, questions)</span></label><textarea id="bnotes" rows="2"></textarea></div>
-      <div class="hint"><span class="req">*</span> Required</div>
-      <div id="bmsg" aria-live="polite"></div>
-      <button class="btn primary" type="submit" id="bbtn">${mine ? 'Update my bid' : 'Submit bid'}</button>
-      ${l.book_rate ? `<button class="btn booknow-btn" type="button" id="bookBtn">Book it now at ${esc(money(l.book_rate))}</button>` : ''}
-      <div class="terms">${esc(cfg.bid_terms || '')}</div>
-    </form></div>`;
-  const upd = () => { const v = Number($('#amount').value.replace(/[^0-9.]/g, '')); $('#rpm').textContent = v && l.miles ? perMile(v, l.miles) + ` · ${Number(l.miles).toLocaleString()} mi` : ''; };
-  $('#amount').addEventListener('input', upd); upd();
-  // MC number -> fill in company name from the carrier list; leave blank to type if not found
-  let autoName = '', lookupTimer = null, lastMc = '';
-  const lookup = async () => {
-    const mc = $('#mc').value.replace(/\D/g, '').replace(/^0+/, '');
-    if (mc === lastMc) return; lastMc = mc;
-    const co = $('#company');
-    if (mc.length < 3) { if (co.value === autoName) co.value = ''; autoName = ''; return; }
-    try {
-      const r = await api('/api/carrier-name?mc=' + encodeURIComponent(mc));
-      if (r.name) { if (!co.value || co.value === autoName) co.value = r.name; autoName = r.name; }
-      else { if (co.value === autoName) co.value = ''; autoName = ''; }
-    } catch (_) { /* leave the field for typing */ }
-  };
-  $('#mc').addEventListener('input', () => { clearTimeout(lookupTimer); lookupTimer = setTimeout(lookup, 400); });
-  $('#mc').addEventListener('blur', lookup);
-  $('#company').addEventListener('input', () => { autoName = ''; });
-  const ny = $('#notYou');
-  if (ny) ny.onclick = () => {
-    if (!confirm('Clear the saved carrier info on this device? This also clears the bids saved on this device (My bids).')) return;
-    try {
-      localStorage.removeItem('carrier'); localStorage.removeItem('bidTokens');
-      Object.keys(localStorage).filter(k => k.startsWith('bid:')).forEach(k => localStorage.removeItem(k));
-    } catch (_) { /* storage blocked */ }
-    myState = null;
-    renderBidbox();
-    toast('Cleared. Enter your info below.');
-    const m = $('#mc'); if (m) m.focus();
-  };
-  let booking = false;
-  const bk = $('#bookBtn'); if (bk) bk.onclick = () => { booking = true; $('#bform').requestSubmit(); };
-  $('#bform').onsubmit = async e => {
-    e.preventDefault();
-    const isBook = booking; booking = false;
-    const body = { mc: $('#mc').value, amount: isBook ? String(l.book_rate) : $('#amount').value, company: $('#company').value, contact_name: $('#cname').value,
-      phone: $('#phone').value, email: $('#email').value, notes: $('#bnotes').value, book_now: isBook };
-    const btn = isBook ? $('#bookBtn') : $('#bbtn'); btn.disabled = true; btn.textContent = isBook ? 'Booking…' : 'Submitting…';
-    try {
-      const r = await api(`/api/loads/${encodeURIComponent(pid)}/bids`, { method: 'POST', body });
-      store.set('carrier', { mc: body.mc, company: body.company, contact_name: body.contact_name, phone: body.phone, email: body.email });
-      store.set('bid:' + pid, { amount: r.amount, at: new Date().toISOString() });
-      if (r.token) myBids.save(pid, r.token);
-      L0.low_bid = r.low_bid; L0.bid_count = r.bid_count;
-      myState = { state: r.you_are_low ? 'leading' : 'outbid', my_bid: r.amount, low_bid: r.low_bid, next_max: r.next_max };
-      renderBidbox();
-      if (r.book_now) popup(`<div class="pop-icon good">✓</div><h2>Booking request sent</h2><div class="pop-amount">${esc(money(r.amount))}</div>
-        <div class="muted">${esc(place(L0.origin_city, L0.origin_state))} → ${esc(place(L0.dest_city, L0.dest_state))}${L0.ref ? ' · #' + esc(L0.ref) : ''}</div>
-        <p>We'll confirm shortly and send the rate confirmation.</p><button class="btn primary" type="button" data-pop-close>OK</button>`);
-      else showBidPopup(r);
-    } catch (err) {
-      $('#bmsg').innerHTML = `<div class="notice err">${esc(err.message)}</div>`;
-      btn.disabled = false; btn.textContent = isBook ? `Book it now at ${money(l.book_rate)}` : mine ? 'Update my bid' : 'Submit bid';
-    }
-  };
+  const contact = (cfg && cfg.contact_email) || 'loads@brocktrans.com';
+  const lane = `${place(l.origin_city, l.origin_state)} → ${place(l.dest_city, l.dest_state)}`;
+  const subj = encodeURIComponent(`${lane} (${l.public_id})`), body = encodeURIComponent(`About ${lane} (${l.public_id})\nAll-in rate: $\nMC#: \n`);
+  const top = `<div class="bidbox-top"><div><div class="lowbid-label">Rate</div><div class="big" style="color:var(--good)">${l.post_rate ? esc(money(l.post_rate)) : 'Make an offer'}</div>
+      ${l.post_rate ? '<div class="rpm">All-in</div>' : '<div class="rpm">Tell us your all-in rate</div>'}</div></div>`;
+  if (!l.bidding_open) { box.innerHTML = top + `<div class="bidbox-body"><h2>${l.status === 'awarded' ? 'This load is covered' : 'No longer available'}</h2><p class="muted">Thanks for checking. <a href="/">See other loads</a>.</p></div>`; return; }
+  box.innerHTML = top + `<div class="bidbox-body" style="display:grid;gap:10px">
+    ${l.post_rate ? `<a class="btn booknow-btn" style="text-align:center" href="/o/_/${esc(l.public_id)}?a=cover">✓ Can cover at ${esc(money(l.post_rate))}</a>` : ''}
+    <a class="btn primary" style="text-align:center" href="/o/_/${esc(l.public_id)}?a=offer">Make an offer</a>
+    <a class="btn" style="text-align:center" href="mailto:${esc(contact)}?subject=${subj}&body=${body}">Email us about this load</a>
+    <div class="hint">We'll confirm with you directly before anything is booked.</div></div>`;
 }
 
 function statusLine(s) {
