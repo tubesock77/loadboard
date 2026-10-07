@@ -55,7 +55,7 @@
         <div class="right">
           <input id="search" type="search" placeholder="Search loads" style="width:200px" aria-label="Search loads">
           <select id="statusFilter" style="width:auto" aria-label="Status filter" autocomplete="off">
-            <option value="active">Active (open &amp; drafts)</option><option value="open">Open</option><option value="draft">Draft</option>
+            <option value="active">Active (open &amp; on hold)</option><option value="open">Open</option><option value="draft">On hold</option>
             <option value="closed">Closed</option><option value="awarded">Awarded</option><option value="">All statuses</option>
           </select>
         </div>
@@ -64,7 +64,7 @@
       <div class="bulkbar" id="bulkbar" hidden>
         <b id="bulkCount">0 selected</b>
         <button class="btn sm" type="button" data-bulk="close">Close (off the board)</button>
-        <button class="btn sm" type="button" data-bulk="draft">Move to draft</button>
+        <button class="btn sm" type="button" data-bulk="draft">Put on hold</button>
         <button class="btn sm danger" type="button" data-bulk="delete">Delete</button>
         <button class="linkbtn" type="button" id="bulkClear">Clear</button>
       </div>
@@ -344,7 +344,9 @@
         </div>
         <div class="grid g2">
           <div class="field"><label for="f_status">Status</label>
-            <select id="f_status" name="status"><option value="open">Open — on the board until you close it</option><option value="draft">Draft — hidden</option><option value="closed">Closed — off the board</option></select></div>
+            <select id="f_status" name="status"><option value="open">Open — on the board until you close it</option><option value="draft">On hold — saved, not shown or answered</option><option value="closed">Closed — off the board</option></select></div>
+          <div class="field" style="align-self:end"><label style="display:flex;gap:8px;align-items:center;font-weight:700;margin:0;white-space:nowrap"><input type="checkbox" id="f_hold" style="width:auto;margin:0"> On hold</label>
+            <div class="hint">Off the board, out of emails and inbox replies until you release it.</div></div>
         </div>
       </fieldset>
       <fieldset><legend>Equipment &amp; freight</legend>
@@ -651,7 +653,7 @@ function renderLoads() {
   $('#loadTable').innerHTML = `<thead><tr><th style="width:30px"><input type="checkbox" id="selAll" aria-label="Select all shown"></th><th>Lane</th><th>Pickup</th><th class="num" title="The rate carriers see (Rate to post) · estimated break-even · DAT market">Carrier rate</th><th class="num">Offers</th><th></th></tr></thead>
   <tbody>${list.map(l => {
     const st = l.status === 'open' && !l.bidding_open ? 'closed' : l.status;
-    const stLabel = l.status === 'open' && !l.bidding_open ? 'Expired' : l.status;
+    const stLabel = l.status === 'draft' ? 'On hold' : l.status;
     const geoNote = l.geo_status === 'failed' ? ' <span class="chip bad" title="' + esc(l.geo_error || 'Address not found — check city/state/ZIP') + '">no map</span>' : l.geo_status === 'pending' ? ' <span class="chip">mapping…</span>' : '';
     const HELD = '9999-12-31T00:00:00.000Z';
     const flState = l.status !== 'open' || !l.first_look_until || l.first_look_released ? '' : l.first_look_until === HELD ? 'held' : Date.parse(l.first_look_until) < Date.now() ? 'ended' : 'active';
@@ -668,6 +670,7 @@ function renderLoads() {
       <td><div class="actions" style="flex-wrap:nowrap;gap:6px">
         ${l.status === 'awarded' ? `<button class="btn sm primary" data-act="track" data-id="${l.id}" title="Stages, notes, documents">Track</button>
         <button class="btn sm" data-act="bids" data-id="${l.id}">Offers${l.bid_count ? ' (' + l.bid_count + ')' : ''}</button>`
+        : l.status === 'draft' ? `<button class="btn sm primary" data-act="release" data-id="${l.id}" title="Put it on the board and pick who to email">Release</button>`
         : `<button class="btn sm primary" data-act="bids" data-id="${l.id}">Offers${l.bid_count ? ' (' + l.bid_count + ')' : ''}</button>
         <button class="btn sm" data-act="link" data-id="${l.id}" title="Copy carrier link">Link</button>`}
         <button class="btn sm" data-act="edit" data-id="${l.id}">Edit</button>
@@ -680,6 +683,22 @@ $('#statusFilter').value = 'active'; // browsers can restore an old choice on re
 $('#search').oninput = renderLoads; $('#statusFilter').onchange = renderLoads;
 $('#boardLink').onclick = () => copyText(boardUrl());
 
+// ---------- loads on hold: saved but not shown or answered until you release them ----------
+async function releaseHeld(l) {
+  await api(`/api/admin/loads/${l.id}`, { method: 'PUT', body: { status: 'open' } });
+  toast('Released — it\'s on the board'); await refreshLoads();
+  if (typeof openNotify === 'function') openNotify(l.id, true);
+}
+// after awarding a load, offer to release the next held load on the same lane
+async function offerNextHeld(l) {
+  const held = loads.filter(x => x.id !== l.id && x.status === 'draft' && x.origin_state === l.origin_state && x.dest_state === l.dest_state
+    && String(x.origin_city || '').toLowerCase() === String(l.origin_city || '').toLowerCase() && String(x.dest_city || '').toLowerCase() === String(l.dest_city || '').toLowerCase())
+    .sort((a, b) => String(a.pickup_date || '9').localeCompare(String(b.pickup_date || '9')));
+  if (!held.length) return;
+  const n = held[0];
+  if (!confirm(`You have ${held.length} load${held.length === 1 ? '' : 's'} on hold on ${place(l.origin_city, l.origin_state)} → ${place(l.dest_city, l.dest_state)}.\n\nRelease the next one${n.pickup_date ? ' (pickup ' + fmtDate(n.pickup_date) + ')' : ''} now?`)) return;
+  await releaseHeld(n);
+}
 $('#loadTable').onclick = async e => {
   const b = e.target.closest('button[data-act]'); if (!b) return;
   const l = loads.find(x => x.id === Number(b.dataset.id)); if (!l) return;
@@ -690,7 +709,8 @@ $('#loadTable').onclick = async e => {
     if (act === 'link') copyText(loadUrl(l));
     if (act === 'track') openFile(l.id);
     if (act === 'fl') openNotify(l.id);
-    if (act === 'dup') { const n = await api(`/api/admin/loads/${l.id}/duplicate`, { method: 'POST' }); await refreshLoads(); openLoad(n); toast('Duplicated as a draft'); }
+    if (act === 'release') await releaseHeld(l);
+    if (act === 'dup') { const n = await api(`/api/admin/loads/${l.id}/duplicate`, { method: 'POST' }); await refreshLoads(); openLoad(n); toast('Duplicated — on hold'); }
     if (act === 'close') { await api(`/api/admin/loads/${l.id}`, { method: 'PUT', body: { status: 'closed' } }); toast('Bidding closed'); refreshLoads(); }
     if (act === 'open') {
       const body = { status: 'open' };
@@ -723,15 +743,19 @@ function openLoad(l) {
   $('#loadMsg').innerHTML = v.status === 'awarded' ? '<div class="notice warn">This load is awarded. Use "Reopen" in the bids window to take bids again.</div>' : '';
   if (editing && editing.geo_status === 'failed') $('#loadMsg').innerHTML += `<div class="notice err" style="margin-top:8px"><b>Map/miles problem:</b> ${esc(editing.geo_error || 'address not found')}. Check the city, state and ZIP, then save to retry.</div>`;
   f.elements.status.disabled = v.status === 'awarded';
+  $('#f_hold').checked = f.elements.status.value === 'draft'; $('#f_hold').disabled = v.status === 'awarded';
   if (typeof onOpenLoad === 'function') onOpenLoad(v, !!editing);
   $('#editOnly').hidden = !editing;
   $('#loadDlg').showModal();
   f.elements.origin_city.focus();
 }
 $('#newLoad').onclick = () => openLoad(null);
+// "On hold" checkbox and the Status menu stay in step
+$('#f_hold').onchange = () => { const st = $('#loadForm').elements.status; st.value = $('#f_hold').checked ? 'draft' : (st.value === 'draft' ? 'open' : st.value); };
+$('#f_status').addEventListener('change', () => { $('#f_hold').checked = $('#f_status').value === 'draft'; });
 $('#dupBtn').onclick = async () => {
   const n = await api(`/api/admin/loads/${editing.id}/duplicate`, { method: 'POST' });
-  $('#loadDlg').close(); await refreshLoads(); openLoad(n); toast('Copied as a new draft — adjust dates and set status to Open');
+  $('#loadDlg').close(); await refreshLoads(); openLoad(n); toast('Copied — on hold. Adjust dates, then release it');
 };
 $('#delBtn').onclick = async () => {
   const l = editing;
@@ -835,7 +859,8 @@ function wire(l) {
   };
   $$('[data-award]').forEach(b => b.onclick = async () => {
     if (!confirm((b.dataset.flag === 'dnu' ? 'WARNING: you marked this carrier DO NOT USE.\n\n' : '') + (b.dataset.pass === '1' ? '' : 'Heads up: this carrier is NOT on your Highway list.\n\n') + 'Award this load to this carrier? Bidding will close and the load will show as covered.')) return;
-    await api(`/api/admin/bids/${b.dataset.award}/award`, { method: 'POST' }); toast('Load awarded — send the rate con from Aljex, then mark it on the Awarded tab'); renderBids(l.id); refreshLoads();
+    await api(`/api/admin/bids/${b.dataset.award}/award`, { method: 'POST' }); toast('Load awarded — send the rate con from Aljex, then mark it on the Awarded tab'); renderBids(l.id); await refreshLoads();
+    offerNextHeld(l);
   });
   $$('#bidsBody [data-cp]').forEach(b => b.onclick = () => openCarrier(b.dataset.cp));
   $$('[data-counter]').forEach(b => b.onclick = () => sendCounter(b, l));

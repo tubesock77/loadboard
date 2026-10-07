@@ -496,7 +496,7 @@ $('#bookForm').onsubmit = async e => {
     await api(`/api/admin/loads/${l.id}/manual-award`, { method: 'POST', body: { mc: $('#bk_mc').value, amount: $('#bk_amount').value, company: $('#bk_company').value,
       contact_name: $('#bk_contact').value, phone: $('#bk_phone').value, email: $('#bk_email').value, note: $('#bk_note').value, notify: $('#bk_notify').checked } });
     $('#bookDlg').close(); toast('Load awarded — send the rate con from Aljex, then mark it on the Awarded tab');
-    renderBids(l.id); refreshLoads();
+    renderBids(l.id); await refreshLoads(); offerNextHeld(l);
   } catch (err) { $('#bookMsg').innerHTML = `<div class="notice err">${esc(err.message)}</div>`; }
 };
 
