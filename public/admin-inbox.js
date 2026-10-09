@@ -112,11 +112,11 @@ $('#ibList').onclick = async e => {
 $('#ibTplBtn').onclick = () => {
   const t = ib.settings.templates;
   $('#tplFields').innerHTML = Object.keys(TPL_LABELS).map(k => `<div class="field"><label for="tp_${k}">${esc(TPL_LABELS[k])}</label><textarea id="tp_${k}" rows="${k === 'tpl_value' || k === 'tpl_howto' ? 3 : 2}" placeholder="${k === 'tpl_value' ? 'e.g. Quick pay in 2 days · No-touch freight · Detention paid after 2 hours · Consistent lanes out of Utah' : ''}">${esc(t[k] || '')}</textarea></div>`).join('');
-  $('#alertDays').value = ib.settings.alert_days;
+  $('#alertDays').value = ib.settings.alert_days; $('#nearbyOn').checked = !!ib.settings.nearby_on;
   $('#tplDlg').showModal();
 };
 $('#tplForm').onsubmit = async e => {
-  e.preventDefault(); const body = { alert_days: $('#alertDays').value }; Object.keys(TPL_LABELS).forEach(k => body[k] = $('#tp_' + k).value);
+  e.preventDefault(); const body = { alert_days: $('#alertDays').value, nearby_on: $('#nearbyOn').checked }; Object.keys(TPL_LABELS).forEach(k => body[k] = $('#tp_' + k).value);
   ib.settings = await api('/api/admin/inbox/settings', { method: 'PUT', body }); $('#tplDlg').close(); toast('Wording saved');
 };
 $('#tplReset').onclick = () => { if (!confirm('Put all reply wording back to the defaults?')) return; Object.keys(TPL_LABELS).forEach(k => $('#tp_' + k).value = ib.settings.defaults[k] || ''); };

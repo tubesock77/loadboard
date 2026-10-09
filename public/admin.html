@@ -410,6 +410,7 @@
       <p class="help" style="margin:0">These are the canned lines the site uses. Placeholders in braces fill in automatically: <span class="mono">{first_name} {lane_text} {lane} {load} {rate} {standing} {problem} {example} {company}</span>. Load details are added under the lines automatically.</p>
       <div id="tplFields" class="stack"></div>
       <div class="grid g2"><div class="field"><label for="alertDays">Lane alerts last (days)</label><input id="alertDays" inputmode="numeric"></div></div>
+      <label style="display:flex;gap:8px;align-items:center;font-weight:500"><input type="checkbox" id="nearbyOn" style="width:auto;margin:0"> When nothing matches the lane a carrier asks about, also send up to 2 other loads from the same pickup state</label>
     </div>
     <div class="dlg-foot"><button class="btn" type="button" id="tplReset" style="margin-right:auto">Reset wording to defaults</button><button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="submit">Save</button></div>
   </form>
