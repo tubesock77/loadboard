@@ -114,12 +114,10 @@ function renderBidbox() {
   const lane = `${place(l.origin_city, l.origin_state)} → ${place(l.dest_city, l.dest_state)}`;
   const subj = encodeURIComponent(`${lane} (${l.public_id})`), body = encodeURIComponent(`About ${lane} (${l.public_id})\nAll-in rate: $\nMC#: \n`);
   const top = `<div class="bidbox-top"><div><div class="lowbid-label">Rate</div><div class="big" style="color:var(--good)">${l.post_rate ? esc(money(l.post_rate)) : 'Make an offer'}</div>
-      ${l.post_rate ? '<div class="rpm">All-in</div>' : '<div class="rpm">Tell us your all-in rate</div>'}</div></div>`;
+      ${l.post_rate ? '<div class="rpm">All-in</div>' : '<div class="rpm">Email us your all-in rate</div>'}</div></div>`;
   if (!l.bidding_open) { box.innerHTML = top + `<div class="bidbox-body"><h2>${l.status === 'awarded' ? 'This load is covered' : 'No longer available'}</h2><p class="muted">Thanks for checking. <a href="/">See other loads</a>.</p></div>`; return; }
   box.innerHTML = top + `<div class="bidbox-body" style="display:grid;gap:10px">
-    ${l.post_rate ? `<a class="btn booknow-btn" style="text-align:center" href="/o/_/${esc(l.public_id)}?a=cover">✓ Can cover at ${esc(money(l.post_rate))}</a>` : ''}
-    <a class="btn primary" style="text-align:center" href="/o/_/${esc(l.public_id)}?a=offer">Make an offer</a>
-    <a class="btn" style="text-align:center" href="mailto:${esc(contact)}?subject=${subj}&body=${body}">Email us about this load</a>
+    <a class="btn primary" style="text-align:center" href="mailto:${esc(contact)}?subject=${subj}&body=${body}">Email us about this load</a>
     <div class="hint">We'll confirm with you directly before anything is booked.</div></div>`;
 }
 

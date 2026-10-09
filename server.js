@@ -347,8 +347,7 @@ function buildDigest(base, loadIds, token) {
           <div style="font:14px Arial,sans-serif;color:#586478;margin-top:4px">${h(det)}</div>${l.post_rate ? `<div style="font:700 15px Arial,sans-serif;color:#17724A;margin-top:4px">Rate ${h('$' + Number(l.post_rate).toLocaleString('en-US'))}</div>` : ''}</td>
         <td style="padding:12px 10px;border-bottom:1px solid #D6DCE6;vertical-align:top;font:14px Arial,sans-serif;color:#141B27;white-space:nowrap">PU ${h(fmtD(l.pickup_date))}<br>DEL ${h(fmtD(l.delivery_date))}</td>
         <td style="padding:12px 10px;border-bottom:1px solid #D6DCE6;vertical-align:top;text-align:right">
-          ${token ? `${l.post_rate ? `<a href="${h(`${base}/o/${token}/${l.public_id}?a=cover`)}" style="display:inline-block;background:#17724A;color:#ffffff;font:700 13px Arial,sans-serif;text-decoration:none;padding:8px 12px;border-radius:6px;margin:0 0 6px;white-space:nowrap">Can cover</a><br>` : ''}<a href="${h(`${base}/o/${token}/${l.public_id}?a=offer`)}" style="display:inline-block;background:#1D4F9E;color:#ffffff;font:700 13px Arial,sans-serif;text-decoration:none;padding:8px 12px;border-radius:6px;white-space:nowrap">Make an offer</a>`
-            : `<a href="${h(url)}" style="display:inline-block;background:#1D4F9E;color:#ffffff;font:700 14px Arial,sans-serif;text-decoration:none;padding:8px 14px;border-radius:6px">View &amp; bid</a>`}</td></tr>`,
+          <a href="mailto:${h(cfg.contact_email || mailer.from())}?subject=${encodeURIComponent(`Offer: ${place(l.origin_city, l.origin_state)} → ${place(l.dest_city, l.dest_state)} (${l.public_id})`)}&body=${encodeURIComponent('All-in rate: $\nMC#: \n')}" style="display:inline-block;border:2px solid #1D4F9E;color:#1D4F9E;font:700 13px Arial,sans-serif;text-decoration:none;padding:6px 12px;border-radius:6px;white-space:nowrap">Reply by email</a></td></tr>`,
     };
   });
   const text = `${cfg.company}\nAvailable loads — ${day}\n\n` + (rows.length ? rows.map(r => r.text).join('\n\n') : 'No open loads right now.') +
@@ -380,9 +379,9 @@ const loadSubject = L => `Load ${L.ref || L.public_id} · ${laneOf(L)}`;
 function emailLayout(heading, body, cta) {
   const cfg = publicConfig();
   return `<div style="max-width:620px;font-family:Arial,sans-serif;color:#141B27">
-    <div style="background:#1D4F9E;color:#fff;padding:14px 18px;border-radius:8px 8px 0 0;font:700 18px Arial,sans-serif;text-transform:uppercase;letter-spacing:.5px">${hx(cfg.company)}</div>
-    <div style="border:1px solid #D6DCE6;border-top:0;padding:18px;border-radius:0 0 8px 8px">
-      <div style="font:700 20px Arial,sans-serif;margin-bottom:10px">${heading}</div>
+    <div style="background:#1D4F9E;color:#fff;padding:8px 14px;border-radius:8px 8px 0 0;font:700 13px Arial,sans-serif;text-transform:uppercase;letter-spacing:.5px">${hx(cfg.company)}</div>
+    <div style="border:1px solid #D6DCE6;border-top:0;padding:16px 18px;border-radius:0 0 8px 8px">
+      <div style="font:700 16px Arial,sans-serif;margin-bottom:10px">${heading}</div>
       <div style="font:15px/1.5 Arial,sans-serif">${body}</div>
       ${cta ? `<p style="margin:18px 0 4px"><a href="${hx(cta.url)}" style="display:inline-block;background:#1D4F9E;color:#fff;font:700 15px Arial,sans-serif;text-decoration:none;padding:10px 18px;border-radius:6px">${hx(cta.label)}</a></p>` : ''}
     </div>
